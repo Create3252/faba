@@ -20,21 +20,37 @@ if not BOT_TOKEN:
 if not WEBHOOK_URL:
     raise ValueError("Не указан URL для вебхука (WEBHOOK_URL)")
 
+# Список ID групп (групповые чаты должны иметь ID вида -100xxxxxxxxxx)
+TARGET_CHATS = [
+    -1001234567890,  # Замени на ID первой группы
+    -1009876543210,  # Замени на ID второй группы
+]
+
 # Инициализация бота и диспетчера
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=0)
 
-# Обработчики команд и сообщений
+# Обработчик команды /start
 def start(update: Update, context: CallbackContext):
-    update.message.reply_text("Привет! Я бот по вебхукам.")
+    update.message.reply_text("Привет! Отправь мне сообщение, и я перешлю его в группы.")
 
+# Обработчик команды /publish_directory (пример для другой функции)
 def publish_directory(update: Update, context: CallbackContext):
     update.message.reply_text("Команда publish_directory вызвана.")
 
+# Обработчик входящих текстовых сообщений
 def forward_message(update: Update, context: CallbackContext):
     if update.message and update.message.text:
-        update.message.reply_text("Сообщение получено.")
+        text = update.message.text
+        # Ответим пользователю, что сообщение отправлено
+        update.message.reply_text("Сообщение отправлено в группы!")
+        # Пересылаем сообщение в каждую группу из списка TARGET_CHATS
+        for chat_id in TARGET_CHATS:
+            try:
+                context.bot.send_message(chat_id=chat_id, text=text)
+            except Exception as e:
+                logging.error(f"Ошибка при отправке сообщения в чат {chat_id}: {e}")
 
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("publish_directory", publish_directory))
