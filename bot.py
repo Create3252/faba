@@ -47,10 +47,12 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("Сообщение отправлено в группы!")
         # Пересылаем сообщение в каждую группу из списка TARGET_CHATS
         for chat_id in TARGET_CHATS:
-            try:
-                context.bot.send_message(chat_id=chat_id, text=text)
-            except Exception as e:
-                logging.error(f"Ошибка при отправке сообщения в чат {chat_id}: {e}")
+    try:
+        logging.info(f"Отправляю сообщение в чат {chat_id}: {text}")
+        context.bot.send_message(chat_id=chat_id, text=text)
+        logging.info(f"Сообщение отправлено в чат {chat_id}")
+    except Exception as e:
+        logging.error(f"Ошибка при отправке сообщения в чат {chat_id}: {e}")
 
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("publish_directory", publish_directory))
