@@ -22,8 +22,8 @@ if not WEBHOOK_URL:
 
 # Список ID групп (групповые чаты должны иметь ID вида -100XXXXXXXXXX)
 TARGET_CHATS = [
-    1002584369534,  # Замени на ID первой группы
-    1002596576819,  # Замени на ID второй группы
+    -1002584369534,  # Замени на ID первой группы
+    -1002596576819,  # Замени на ID второй группы
 ]
 
 # Инициализация бота и диспетчера с несколькими рабочими потоками
@@ -42,14 +42,12 @@ def publish_directory(update: Update, context: CallbackContext):
 # Обработчик входящих текстовых сообщений
 def forward_message(update: Update, context: CallbackContext):
     if update.message and update.message.text:
-        msg_text = update.message.text  # используем переменную msg_text
-        # Ответ пользователю
+        msg_text = update.message.text
         update.message.reply_text("Сообщение отправлено в группы!")
-        # Пересылаем сообщение в каждую группу из списка TARGET_CHATS
         for chat_id in TARGET_CHATS:
             try:
                 logging.info(f"Отправляю сообщение в чат {chat_id}: {msg_text}")
-                context.bot.send_message(chat_id=chat_id, text=msg_text)
+                context.bot.send_message(chat_id=chat_id, text=f"Пересланное сообщение: {msg_text}")
                 logging.info(f"Сообщение отправлено в чат {chat_id}")
             except Exception as e:
                 logging.error(f"Ошибка при отправке сообщения в чат {chat_id}: {e}")
