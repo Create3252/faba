@@ -71,6 +71,7 @@ app = Flask(__name__)
 @app.route('/webhook', methods=['POST'])
 def webhook():
     json_data = request.get_json(force=True)
+    logging.info(f"Получено обновление: {json_data}")
     update = Update.de_json(json_data, bot)
     dispatcher.process_update(update)
     return "OK", 200
