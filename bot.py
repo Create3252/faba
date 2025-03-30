@@ -56,6 +56,13 @@ dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("publish_directory", publish_directory))
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_message))
 
+def get_chat_id(update: Update, context: CallbackContext):
+    chat_id = update.message.chat.id
+    update.message.reply_text(f"ID этой группы: {chat_id}")
+    logging.info(f"ID группы: {chat_id}")
+
+dispatcher.add_handler(CommandHandler("getid", get_chat_id))
+
 # Создаем Flask-приложение
 app = Flask(__name__)
 
