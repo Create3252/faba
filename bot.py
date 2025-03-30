@@ -46,7 +46,7 @@ def forward_message(update: Update, context: CallbackContext):
         # Ответим пользователю, что сообщение отправлено
         update.message.reply_text("Сообщение отправлено в группы!")
         # Пересылаем сообщение в каждую группу из списка TARGET_CHATS
-        for chat_id in TARGET_CHATS:
+       for chat_id in TARGET_CHATS:
     try:
         logging.info(f"Отправляю сообщение в чат {chat_id}: {text}")
         context.bot.send_message(chat_id=chat_id, text=text)
