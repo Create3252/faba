@@ -20,16 +20,16 @@ if not BOT_TOKEN:
 if not WEBHOOK_URL:
     raise ValueError("Не указан URL для вебхука (WEBHOOK_URL)")
 
-# Список ID групп (групповые чаты должны иметь ID вида -100xxxxxxxxxx)
+# Список ID групп (групповые чаты должны иметь ID вида -100XXXXXXXXXX)
 TARGET_CHATS = [
     -1002584369534,  # Замени на ID первой группы
     -1002596576819,  # Замени на ID второй группы
 ]
 
-# Инициализация бота и диспетчера
+# Инициализация бота и диспетчера с несколькими рабочими потоками
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
-dispatcher = Dispatcher(bot, None, workers=0)
+dispatcher = Dispatcher(bot, None, workers=4)  # workers > 0 для асинхронной обработки
 
 # Обработчик команды /start
 def start(update: Update, context: CallbackContext):
@@ -42,23 +42,23 @@ def publish_directory(update: Update, context: CallbackContext):
 # Обработчик входящих текстовых сообщений
 def forward_message(update: Update, context: CallbackContext):
     if update.message and update.message.text:
-        text = update.message.text
-        # Ответим пользователю, что сообщение отправлено
+        msg_text = update.message.text  # используем переменную msg_text
+        # Ответ пользователю
         update.message.reply_text("Сообщение отправлено в группы!")
         # Пересылаем сообщение в каждую группу из списка TARGET_CHATS
-       
-for chat_id in TARGET_CHATS:
-    try:
-        logging.info(f"Отправляю сообщение в чат {chat_id}: {text}")
-        context.bot.send_message(chat_id=chat_id, text=text)
-        logging.info(f"Сообщение отправлено в чат {chat_id}")
-    except Exception as e:
-        logging.error(f"Ошибка при отправке сообщения в чат {chat_id}: {e}")
+        for chat_id in TARGET_CHATS:
+            try:
+                logging.info(f"Отправляю сообщение в чат {chat_id}: {msg_text}")
+                context.bot.send_message(chat_id=chat_id, text=msg_text)
+                logging.info(f"Сообщение отправлено в чат {chat_id}")
+            except Exception as e:
+                logging.error(f"Ошибка при отправке сообщения в чат {chat_id}: {e}")
 
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("publish_directory", publish_directory))
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_message))
 
+# Добавляем временный обработчик для получения ID чата (для отладки)
 def get_chat_id(update: Update, context: CallbackContext):
     chat_id = update.message.chat.id
     update.message.reply_text(f"ID этой группы: {chat_id}")
