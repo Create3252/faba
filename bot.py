@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from flask import Flask, request
 from telegram import Update, Bot
@@ -27,11 +28,25 @@ TARGET_CHATS = [
 ]
 
 # Список ID пользователей, которым разрешено писать сообщения боту
-ALLOWED_USER_IDS = [296920330, 320303183]  # Добавляй сюда ID, например: [296920330, 123456789]
+ALLOWED_USER_IDS = [296920330, 320303183]  # Добавляй сюда другие ID, если нужно
 
 # Глобальный словарь для хранения пересланных сообщений.
 # Ключ: ID исходного сообщения, значение: словарь {chat_id: forwarded_message_id}
 forwarded_messages = {}
+
+# Функция для отправки сообщения с повторными попытками
+def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
+    attempt = 1
+    while attempt <= max_attempts:
+        try:
+            sent_message = bot.send_message(chat_id=chat_id, text=msg_text)
+            logging.info(f"Сообщение отправлено в чат {chat_id}, message_id: {sent_message.message_id}")
+            return sent_message
+        except Exception as e:
+            logging.error(f"Попытка {attempt}: ошибка при отправке сообщения в чат {chat_id}: {e}")
+            attempt += 1
+            time.sleep(delay)
+    return None
 
 # Инициализация бота и диспетчера с несколькими рабочими потоками
 req = Request(connect_timeout=20, read_timeout=20)
@@ -59,18 +74,16 @@ def forward_message(update: Update, context: CallbackContext):
         return
     if update.message and update.message.text:
         msg_text = update.message.text
-        update.message.reply_text("Сообщение отправлено в группы!")
+        update.message.reply_text("Сообщение поставлено в очередь отправки в группы!")
         forwarded = {}
         for chat_id in TARGET_CHATS:
-            try:
-                logging.info(f"Отправляю сообщение в чат {chat_id}: {msg_text}")
-                sent_message = bot.send_message(chat_id=chat_id, text=msg_text)
+            logging.info(f"Попытка отправить сообщение в чат {chat_id}: {msg_text}")
+            sent_message = send_message_with_retry(chat_id, msg_text)
+            if sent_message:
                 forwarded[chat_id] = sent_message.message_id
-                logging.info(f"Сообщение отправлено в чат {chat_id}, message_id: {sent_message.message_id}")
-            except Exception as e:
-                logging.error(f"Ошибка при отправке сообщения в чат {chat_id}: {e}")
+            else:
+                logging.error(f"Не удалось отправить сообщение в чат {chat_id} после повторных попыток.")
         if forwarded:
-            # Сохраняем пересланные сообщения с ключом, равным ID исходного сообщения
             forwarded_messages[update.message.message_id] = forwarded
 
 dispatcher.add_handler(CommandHandler("start", start))
@@ -79,15 +92,12 @@ dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_m
 
 # Обработчик команды /edit для редактирования пересланного сообщения
 def edit_message(update: Update, context: CallbackContext):
-    # Проверяем, что отправитель разрешён
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для редактирования сообщений.")
         return
-    # Команда /edit должна быть ответом на исходное сообщение, которое ранее пересылалось
     if not update.message.reply_to_message:
         update.message.reply_text("Используйте команду /edit, ответив на исходное сообщение, которое хотите отредактировать.")
         return
-
     original_id = update.message.reply_to_message.message_id
     new_text = ' '.join(context.args)
     if not new_text:
@@ -99,7 +109,6 @@ def edit_message(update: Update, context: CallbackContext):
 
     edits = forwarded_messages[original_id]
     success = True
-
     for chat_id, fwd_msg_id in edits.items():
         try:
             bot.edit_message_text(chat_id=chat_id, message_id=fwd_msg_id, text=new_text)
@@ -107,7 +116,6 @@ def edit_message(update: Update, context: CallbackContext):
         except Exception as e:
             logging.error(f"Ошибка при редактировании сообщения в чате {chat_id}: {e}")
             success = False
-
     if success:
         update.message.reply_text("Сообщения отредактированы.")
     else:
@@ -141,11 +149,9 @@ def index():
     return "Bot is running", 200
 
 if __name__ == "__main__":
-    # Удаляем предыдущий вебхук (если есть) и устанавливаем новый
     bot.delete_webhook(drop_pending_updates=True)
     bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     
-    # Получаем порт из переменной окружения (Render задаёт PORT)
     port = int(os.environ.get("PORT", 5000))
     logging.info(f"Запуск Flask-сервера на порту {port}")
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
