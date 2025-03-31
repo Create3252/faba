@@ -47,7 +47,7 @@ def forward_message(update: Update, context: CallbackContext):
         for chat_id in TARGET_CHATS:
             try:
                 logging.info(f"Отправляю сообщение в чат {chat_id}: {msg_text}")
-                bot.send_message(chat_id=chat_id, text=f"Пересланное сообщение: {msg_text}")
+                bot.send_message(chat_id=chat_id, {msg_text}")
                 logging.info(f"Сообщение отправлено в чат {chat_id}")
             except Exception as e:
                 logging.error(f"Ошибка при отправке сообщения в чат {chat_id}: {e}")
