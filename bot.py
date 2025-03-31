@@ -44,19 +44,19 @@ def forward_message(update: Update, context: CallbackContext):
     if update.message and update.message.text:
         msg_text = update.message.text
         update.message.reply_text("Сообщение отправлено в группы!")
-       for chat_id in TARGET_CHATS:
-    try:
-        logging.info(f"Отправляю сообщение в чат {chat_id}: {msg_text}")
-        bot.send_message(chat_id=chat_id, text=f"Пересланное сообщение: {msg_text}")
-        logging.info(f"Сообщение отправлено в чат {chat_id}")
-    except Exception as e:
-        logging.error(f"Ошибка при отправке сообщения в чат {chat_id}: {e}")
+        for chat_id in TARGET_CHATS:
+            try:
+                logging.info(f"Отправляю сообщение в чат {chat_id}: {msg_text}")
+                context.bot.send_message(chat_id=chat_id, text=f"Пересланное сообщение: {msg_text}")
+                logging.info(f"Сообщение отправлено в чат {chat_id}")
+            except Exception as e:
+                logging.error(f"Ошибка при отправке сообщения в чат {chat_id}: {e}")
 
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("publish_directory", publish_directory))
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_message))
 
-# Добавляем временный обработчик для получения ID чата (для отладки)
+# Временный обработчик для получения ID чата (для отладки)
 def get_chat_id(update: Update, context: CallbackContext):
     chat_id = update.message.chat.id
     update.message.reply_text(f"ID этой группы: {chat_id}")
