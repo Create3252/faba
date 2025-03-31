@@ -79,46 +79,34 @@ dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_m
 
 # Обработчик команды /edit для редактирования пересланного сообщения
 def edit_message(update: Update, context: CallbackContext):
+    # Проверяем, что отправитель разрешён
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для редактирования сообщений.")
         return
-    # Команда /edit должна быть ответом на исходное сообщение
+    # Команда /edit должна быть ответом на исходное сообщение, которое ранее пересылалось
     if not update.message.reply_to_message:
-        update.message.reply_text("Используйте команду /edit, ответив на сообщение, которое хотите отредактировать.")
+        update.message.reply_text("Используйте команду /edit, ответив на исходное сообщение, которое хотите отредактировать.")
         return
+
     original_id = update.message.reply_to_message.message_id
     new_text = ' '.join(context.args)
     if not new_text:
         update.message.reply_text("Укажите новый текст для редактирования.")
         return
     if original_id not in forwarded_messages:
-        update.message.reply_text("Не найдены пересланные сообщения для редактирования.")
+        update.message.reply_text("Не найдены пересланные сообщения для редактирования. Убедитесь, что вы отвечаете на правильное сообщение.")
         return
 
     edits = forwarded_messages[original_id]
-    new_edits = {}
     success = True
 
     for chat_id, fwd_msg_id in edits.items():
         try:
-            # Пытаемся отредактировать старое сообщение
             bot.edit_message_text(chat_id=chat_id, message_id=fwd_msg_id, text=new_text)
             logging.info(f"Сообщение в чате {chat_id} отредактировано, message_id: {fwd_msg_id}")
-            new_edits[chat_id] = fwd_msg_id
         except Exception as e:
             logging.error(f"Ошибка при редактировании сообщения в чате {chat_id}: {e}")
-            # Если редактирование не удалось, удаляем старое сообщение и отправляем новое
-            try:
-                bot.delete_message(chat_id=chat_id, message_id=fwd_msg_id)
-                sent_message = bot.send_message(chat_id=chat_id, text=new_text)
-                logging.info(f"Сообщение в чате {chat_id} удалено и отправлено новое, message_id: {sent_message.message_id}")
-                new_edits[chat_id] = sent_message.message_id
-            except Exception as e2:
-                logging.error(f"Ошибка при удалении/отправке нового сообщения в чате {chat_id}: {e2}")
-                success = False
-
-    if new_edits:
-        forwarded_messages[original_id] = new_edits  # Обновляем словарь с новыми ID сообщений
+            success = False
 
     if success:
         update.message.reply_text("Сообщения отредактированы.")
