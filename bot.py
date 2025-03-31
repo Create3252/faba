@@ -94,15 +94,32 @@ def edit_message(update: Update, context: CallbackContext):
     if original_id not in forwarded_messages:
         update.message.reply_text("Не найдены пересланные сообщения для редактирования.")
         return
+
     edits = forwarded_messages[original_id]
+    new_edits = {}
     success = True
+
     for chat_id, fwd_msg_id in edits.items():
         try:
+            # Пытаемся отредактировать старое сообщение
             bot.edit_message_text(chat_id=chat_id, message_id=fwd_msg_id, text=new_text)
             logging.info(f"Сообщение в чате {chat_id} отредактировано, message_id: {fwd_msg_id}")
+            new_edits[chat_id] = fwd_msg_id
         except Exception as e:
             logging.error(f"Ошибка при редактировании сообщения в чате {chat_id}: {e}")
-            success = False
+            # Если редактирование не удалось, удаляем старое сообщение и отправляем новое
+            try:
+                bot.delete_message(chat_id=chat_id, message_id=fwd_msg_id)
+                sent_message = bot.send_message(chat_id=chat_id, text=new_text)
+                logging.info(f"Сообщение в чате {chat_id} удалено и отправлено новое, message_id: {sent_message.message_id}")
+                new_edits[chat_id] = sent_message.message_id
+            except Exception as e2:
+                logging.error(f"Ошибка при удалении/отправке нового сообщения в чате {chat_id}: {e2}")
+                success = False
+
+    if new_edits:
+        forwarded_messages[original_id] = new_edits  # Обновляем словарь с новыми ID сообщений
+
     if success:
         update.message.reply_text("Сообщения отредактированы.")
     else:
