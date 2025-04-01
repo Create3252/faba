@@ -69,6 +69,10 @@ def publish_directory(update: Update, context: CallbackContext):
 
 # Обработчик входящих текстовых сообщений для пересылки
 def forward_message(update: Update, context: CallbackContext):
+    # Проверяем, что сообщение пришло из личного чата
+    if update.message.chat.type != "private":
+        return  # Если не из личного чата, ничего не делаем
+    
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
