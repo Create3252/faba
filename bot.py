@@ -2,7 +2,7 @@ import os
 import time
 import logging
 from flask import Flask, request
-from telegram import Update, Bot
+from telegram import Update, Bot, ReplyKeyboardMarkup
 from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
 from telegram.utils.request import Request
 
@@ -23,9 +23,16 @@ if not WEBHOOK_URL:
 
 # Список ID групп (групповые чаты должны иметь ID вида -100XXXXXXXXXX)
 TARGET_CHATS = [
-    -1002584369534,  # Замени на ID первой группы
-    -1002596576819,  # Замени на ID второй группы
+    -1002584369534,  # Тюмень
+    -1002596576819,  # Москва
 ]
+
+# Маппинг для удобства выбора
+CHAT_OPTIONS = {
+    "Тюмень": [TARGET_CHATS[0]],
+    "Москва": [TARGET_CHATS[1]],
+    "Оба": TARGET_CHATS
+}
 
 # Список ID пользователей, которым разрешено писать сообщения боту
 ALLOWED_USER_IDS = [296920330, 320303183]  # Добавляй сюда другие ID, если нужно
@@ -53,12 +60,44 @@ req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)  # workers > 0 для асинхронной обработки
 
-# Обработчик команды /start
+# Команда /start
 def start(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
         return
-    update.message.reply_text("Привет! Отправь мне сообщение, и я перешлю его в группы.")
+    update.message.reply_text(
+        "Привет!\n"
+        "Сначала выбери, куда отправлять сообщения, командой /choose, а затем отправляй текст."
+    )
+
+dispatcher.add_handler(CommandHandler("start", start))
+
+# Команда /choose – выводит клавиатуру с вариантами выбора чатов
+def choose(update: Update, context: CallbackContext):
+    if update.message.from_user.id not in ALLOWED_USER_IDS:
+        update.message.reply_text("У вас нет прав для использования этого бота.")
+        return
+    keyboard = [["Тюмень", "Москва"], ["Оба"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    update.message.reply_text("Выберите, куда отправлять сообщения:", reply_markup=reply_markup)
+
+dispatcher.add_handler(CommandHandler("choose", choose))
+
+# Обработчик для выбора варианта (принимает ответы "Тюмень", "Москва" или "Оба")
+def handle_choice(update: Update, context: CallbackContext):
+    if update.message.from_user.id not in ALLOWED_USER_IDS:
+        return
+    choice = update.message.text.strip()
+    if choice in CHAT_OPTIONS:
+        context.user_data["selected_chats"] = CHAT_OPTIONS[choice]
+        context.user_data["selected_option"] = choice
+        update.message.reply_text(f"Вы выбрали: {choice}. Теперь отправляйте сообщения боту.")
+    else:
+        # Если ответ не соответствует варианту, пропускаем обработку
+        return
+
+# Этот обработчик должен срабатывать до общего обработчика текстовых сообщений
+dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Тюмень|Москва|Оба)$"), handle_choice))
 
 # Обработчик команды /publish_directory (пример для другой функции)
 def publish_directory(update: Update, context: CallbackContext):
@@ -67,20 +106,30 @@ def publish_directory(update: Update, context: CallbackContext):
         return
     update.message.reply_text("Команда publish_directory вызвана.")
 
+dispatcher.add_handler(CommandHandler("publish_directory", publish_directory))
+
 # Обработчик входящих текстовых сообщений для пересылки
 def forward_message(update: Update, context: CallbackContext):
-    # Проверяем, что сообщение пришло из личного чата
+    # Обработка только личных сообщений
     if update.message.chat.type != "private":
-        return  # Если не из личного чата, ничего не делаем
-    
+        return
+
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
+
     if update.message and update.message.text:
         msg_text = update.message.text
-        update.message.reply_text("Сообщение поставлено в очередь отправки в группы!")
+        # Проверяем, выбран ли вариант для пересылки
+        if "selected_chats" not in context.user_data:
+            update.message.reply_text("Сначала выберите, куда отправлять сообщения, командой /choose.")
+            return
+
+        target_chats = context.user_data["selected_chats"]
+        option = context.user_data.get("selected_option", "неизвестно")
+        update.message.reply_text("Сообщение поставлено в очередь отправки в выбранные чаты!")
         forwarded = {}
-        for chat_id in TARGET_CHATS:
+        for chat_id in target_chats:
             logging.info(f"Попытка отправить сообщение в чат {chat_id}: {msg_text}")
             sent_message = send_message_with_retry(chat_id, msg_text)
             if sent_message:
@@ -89,9 +138,8 @@ def forward_message(update: Update, context: CallbackContext):
                 logging.error(f"Не удалось отправить сообщение в чат {chat_id} после повторных попыток.")
         if forwarded:
             forwarded_messages[update.message.message_id] = forwarded
+            update.message.reply_text(f"Сообщение отправлено в: {option}")
 
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("publish_directory", publish_directory))
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_message))
 
 # Обработчик команды /edit для редактирования пересланного сообщения
