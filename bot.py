@@ -27,7 +27,7 @@ TARGET_CHATS = [
     -1002596576819,  # Москва
 ]
 
-# Маппинг для удобства выбора
+# Маппинг для выбора чатов
 CHAT_OPTIONS = {
     "Тюмень": [TARGET_CHATS[0]],
     "Москва": [TARGET_CHATS[1]],
@@ -35,7 +35,7 @@ CHAT_OPTIONS = {
 }
 
 # Список ID пользователей, которым разрешено писать сообщения боту
-ALLOWED_USER_IDS = [296920330, 320303183]  # Добавляй сюда другие ID, если нужно
+ALLOWED_USER_IDS = [296920330, 320303183]  # Добавляйте нужные ID
 
 # Глобальный словарь для хранения пересланных сообщений.
 # Ключ: ID исходного сообщения, значение: словарь {chat_id: forwarded_message_id}
@@ -60,30 +60,29 @@ req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)  # workers > 0 для асинхронной обработки
 
-# Команда /start
+# Обработчик команды /start
 def start(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
         return
     update.message.reply_text(
-        "Привет!\n"
-        "Сначала выбери, куда отправлять сообщения, командой /choose, а затем отправляй текст."
+        "Привет! Для отправки сообщения в чаты сперва выберите, куда его отправлять командой /choose."
     )
 
 dispatcher.add_handler(CommandHandler("start", start))
 
-# Команда /choose – выводит клавиатуру с вариантами выбора чатов
+# Обработчик команды /choose – выводит клавиатуру с вариантами выбора чатов
 def choose(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
         return
     keyboard = [["Тюмень", "Москва"], ["Оба"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    update.message.reply_text("Выберите, куда отправлять сообщения:", reply_markup=reply_markup)
+    update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
 
 dispatcher.add_handler(CommandHandler("choose", choose))
 
-# Обработчик для выбора варианта (принимает ответы "Тюмень", "Москва" или "Оба")
+# Обработчик для выбора варианта
 def handle_choice(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
@@ -91,12 +90,11 @@ def handle_choice(update: Update, context: CallbackContext):
     if choice in CHAT_OPTIONS:
         context.user_data["selected_chats"] = CHAT_OPTIONS[choice]
         context.user_data["selected_option"] = choice
-        update.message.reply_text(f"Вы выбрали: {choice}. Теперь отправляйте сообщения боту.")
+        update.message.reply_text(f"Вы выбрали: {choice}. Теперь отправьте сообщение.")
     else:
-        # Если ответ не соответствует варианту, пропускаем обработку
-        return
+        # Если ответ не соответствует варианту, можно проигнорировать
+        update.message.reply_text("Неверный выбор. Используйте /choose для повторного выбора.")
 
-# Этот обработчик должен срабатывать до общего обработчика текстовых сообщений
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Тюмень|Москва|Оба)$"), handle_choice))
 
 # Обработчик команды /publish_directory (пример для другой функции)
@@ -113,23 +111,20 @@ def forward_message(update: Update, context: CallbackContext):
     # Обработка только личных сообщений
     if update.message.chat.type != "private":
         return
-
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
-
     if update.message and update.message.text:
-        msg_text = update.message.text
-        # Проверяем, выбран ли вариант для пересылки
+        # Проверяем, выбран ли вариант для пересылки в текущем сообщении
         if "selected_chats" not in context.user_data:
-            update.message.reply_text("Сначала выберите, куда отправлять сообщения, командой /choose.")
+            update.message.reply_text("Сначала выберите, куда отправлять сообщение, командой /choose.")
             return
 
-        target_chats = context.user_data["selected_chats"]
-        option = context.user_data.get("selected_option", "неизвестно")
-        update.message.reply_text("Сообщение поставлено в очередь отправки в выбранные чаты!")
+        msg_text = update.message.text
+        selected_option = context.user_data.get("selected_option", "неизвестно")
+        update.message.reply_text("Сообщение поставлено в очередь отправки!")
         forwarded = {}
-        for chat_id in target_chats:
+        for chat_id in context.user_data["selected_chats"]:
             logging.info(f"Попытка отправить сообщение в чат {chat_id}: {msg_text}")
             sent_message = send_message_with_retry(chat_id, msg_text)
             if sent_message:
@@ -138,7 +133,10 @@ def forward_message(update: Update, context: CallbackContext):
                 logging.error(f"Не удалось отправить сообщение в чат {chat_id} после повторных попыток.")
         if forwarded:
             forwarded_messages[update.message.message_id] = forwarded
-            update.message.reply_text(f"Сообщение отправлено в: {option}")
+            update.message.reply_text(f"Сообщение отправлено в: {selected_option}")
+        # Очищаем выбор, чтобы для каждого нового сообщения выбор делался заново
+        context.user_data.pop("selected_chats", None)
+        context.user_data.pop("selected_option", None)
 
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_message))
 
