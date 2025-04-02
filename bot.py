@@ -101,7 +101,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
             try:
                 chat_info = bot.get_chat(chat_id)
                 # Получаем общее количество участников
-                count = bot.get_chat_members_count(chat_id)
+                count = bot.get_chat_member_count(chat_id)
 
                 # Вычитаем пользователей из ignore_ids, если они присутствуют
                 for ignore_id in ignore_ids:
