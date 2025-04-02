@@ -55,7 +55,7 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
             time.sleep(delay)
     return None
 
-# Инициализация бота и диспетчера с несколькими рабочими потоками
+# Инициализация бота и диспетчера
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
@@ -80,6 +80,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
         return
     if "pending_main_menu" not in context.user_data:
         return
+
     choice = update.message.text.strip()
     if choice == "Написать сообщение":
         # Выводим клавиатуру для выбора чатов
@@ -87,31 +88,55 @@ def handle_main_menu(update: Update, context: CallbackContext):
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
         context.user_data["pending_destination"] = True
+
     elif choice == "Список чатов":
-        # Формируем кликабельный список чатов
+        # Формируем кликабельный список чатов с количеством участников
         info_lines = ["Список чатов ФАБА:"]
+        # Список ID, которых не учитываем
+        ignore_ids = [
+            296920330, 7905869507, 320303183,
+            533773, 327650534, 136737738, 1283190854, 1607945564
+        ]
         for chat_id in TARGET_CHATS:
             try:
                 chat_info = bot.get_chat(chat_id)
-                link = None
+                # Получаем общее количество участников
+                count = bot.get_chat_members_count(chat_id)
+
+                # Вычитаем пользователей из ignore_ids, если они присутствуют
+                for ignore_id in ignore_ids:
+                    try:
+                        member = bot.get_chat_member(chat_id, ignore_id)
+                        if member.status not in ["left", "kicked"]:
+                            count -= 1
+                    except Exception as e:
+                        # Если Participant_id_invalid, просто игнорируем
+                        if "Participant_id_invalid" in str(e):
+                            continue
+                        else:
+                            logging.error(f"Ошибка при проверке пользователя {ignore_id} для чата {chat_id}: {e}")
+
+                # Формируем кликабельную ссылку
                 if chat_info.username:
                     link = f"https://t.me/{chat_info.username}"
+                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a> - {count}")
                 else:
-                    try:
-                        # Получаем invite-ссылку, если бот администратор и имеет права
-                        link = bot.export_chat_invite_link(chat_id)
-                    except Exception as e:
-                        logging.error(f"Ошибка при получении invite-ссылки для чата {chat_id}: {e}")
-                if link:
-                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a>")
-                else:
-                    info_lines.append(chat_info.title)
+                    info_lines.append(f"{chat_info.title} - {count}")
+
             except Exception as e:
                 logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
                 info_lines.append("Информация для чата недоступна.")
-        update.message.reply_text("\n".join(info_lines), parse_mode="HTML")
+
+        # Отправляем сообщение с отключённым предпросмотром ссылок
+        update.message.reply_text(
+            "\n".join(info_lines),
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+
     else:
         update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
+
     context.user_data.pop("pending_main_menu", None)
 
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Написать сообщение|Список чатов)$"), handle_main_menu))
@@ -122,6 +147,7 @@ def handle_destination_choice(update: Update, context: CallbackContext):
         return
     if "pending_destination" not in context.user_data:
         return
+
     choice = update.message.text.strip()
     if choice in CHAT_OPTIONS:
         context.user_data["selected_chats"] = CHAT_OPTIONS[choice]
@@ -129,6 +155,7 @@ def handle_destination_choice(update: Update, context: CallbackContext):
         update.message.reply_text(f"Вы выбрали: {choice}. Теперь отправьте сообщение.")
     else:
         update.message.reply_text("Неверный выбор. Используйте /choose для повторного выбора.")
+
     context.user_data.pop("pending_destination", None)
 
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Тюмень|Москва|Оба)$"), handle_destination_choice))
@@ -142,7 +169,6 @@ def forward_message(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
-    # Для каждого нового сообщения требуем выбор через /menu
     if "selected_chats" not in context.user_data:
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
@@ -161,7 +187,6 @@ def forward_message(update: Update, context: CallbackContext):
     if forwarded:
         forwarded_messages[update.message.message_id] = forwarded
         update.message.reply_text(f"Сообщение отправлено в: {selected_option}")
-    # Очищаем выбор для нового сообщения
     context.user_data.pop("selected_chats", None)
     context.user_data.pop("selected_option", None)
 
@@ -176,6 +201,7 @@ def edit_message(update: Update, context: CallbackContext):
     if not update.message.reply_to_message:
         update.message.reply_text("Используйте команду /edit, ответив на исходное сообщение, которое хотите отредактировать.")
         return
+
     original_id = update.message.reply_to_message.message_id
     new_text = ' '.join(context.args)
     if not new_text:
