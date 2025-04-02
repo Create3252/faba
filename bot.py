@@ -55,60 +55,68 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
             time.sleep(delay)
     return None
 
-# Инициализация бота и диспетчера с несколькими рабочими потоками
+# Инициализация бота и диспетчера
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
-# Команда /menu – основное меню, где пользователь выбирает дальнейшее действие
+### Главное меню и обработчики выбора
+
+# Обработчик команды /menu – выводит главное меню с двумя кнопками
 def menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
         return
     keyboard = [["Написать сообщение", "Список чатов"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    update.message.reply_text("Выберите, что вы хотите:", reply_markup=reply_markup)
+    update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
+    # Устанавливаем флаг, что ждем выбора из главного меню
+    context.user_data["pending_main_menu"] = True
 
 dispatcher.add_handler(CommandHandler("menu", menu))
 
-# Обработчик для выбора пункта из меню
-def handle_menu_choice(update: Update, context: CallbackContext):
+# Обработчик выбора в главном меню
+def handle_main_menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
+        return
+    if "pending_main_menu" not in context.user_data:
         return
     choice = update.message.text.strip()
     if choice == "Написать сообщение":
-        update.message.reply_text("Для отправки сообщения используйте команду /choose, а затем отправьте текст.")
+        # Показываем клавиатуру для выбора чатов
+        keyboard = [["Тюмень", "Москва"], ["Оба"]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
     elif choice == "Список чатов":
-        # Собираем информацию по каждому чату
-        info_lines = []
+        # Формируем сообщение с информацией по чатам
+        info_lines = ["Список чатов ФАБА:"]
         for chat_id in TARGET_CHATS:
             try:
                 chat_info = bot.get_chat(chat_id)
-                # Например, используем название чата
-                info_lines.append(f"{chat_info.title} (ID: {chat_id})")
+                # Если у чата есть публичный username, формируем кликабельную ссылку
+                if chat_info.username:
+                    info_lines.append(f"<a href='https://t.me/{chat_info.username}'>{chat_info.title}</a>")
+                else:
+                    info_lines.append(chat_info.title)
             except Exception as e:
                 logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
-                info_lines.append(f"Чат с ID {chat_id}: информация недоступна.")
-        update.message.reply_text("Список чатов:\n" + "\n".join(info_lines))
+                info_lines.append("Информация недоступна")
+        update.message.reply_text("\n".join(info_lines), parse_mode="HTML")
     else:
-        update.message.reply_text("Неверный выбор. Попробуйте еще раз, используя /menu.")
+        update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
+    # Снимаем флаг главного меню
+    context.user_data.pop("pending_main_menu", None)
+    # Если выбор был "Написать сообщение", устанавливаем флаг, чтобы ожидать выбора чатов
+    if choice == "Написать сообщение":
+        context.user_data["pending_destination"] = True
 
-dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Написать сообщение|Список чатов)$"), handle_menu_choice))
+dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Написать сообщение|Список чатов)$"), handle_main_menu))
 
-# Команда /choose – выводит клавиатуру с вариантами выбора для отправки сообщений
-def choose(update: Update, context: CallbackContext):
+# Обработчик для выбора чатов (появляется после выбора "Написать сообщение")
+def handle_destination_choice(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
-        update.message.reply_text("У вас нет прав для использования этого бота.")
         return
-    keyboard = [["Тюмень", "Москва"], ["Оба"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
-
-dispatcher.add_handler(CommandHandler("choose", choose))
-
-# Обработчик для выбора варианта для отправки
-def handle_choice(update: Update, context: CallbackContext):
-    if update.message.from_user.id not in ALLOWED_USER_IDS:
+    if "pending_destination" not in context.user_data:
         return
     choice = update.message.text.strip()
     if choice in CHAT_OPTIONS:
@@ -117,8 +125,11 @@ def handle_choice(update: Update, context: CallbackContext):
         update.message.reply_text(f"Вы выбрали: {choice}. Теперь отправьте сообщение.")
     else:
         update.message.reply_text("Неверный выбор. Используйте /choose для повторного выбора.")
+    context.user_data.pop("pending_destination", None)
 
-dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Тюмень|Москва|Оба)$"), handle_choice))
+dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Тюмень|Москва|Оба)$"), handle_destination_choice))
+
+### Отправка сообщения
 
 # Обработчик входящих текстовых сообщений для пересылки
 def forward_message(update: Update, context: CallbackContext):
@@ -128,10 +139,9 @@ def forward_message(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
-
-    # Для каждого нового сообщения требуем выбор через /choose
+    # Если пользователь не выбрал пункт для отправки, напомним ему вызвать /menu
     if "selected_chats" not in context.user_data:
-        update.message.reply_text("Сначала выберите, куда отправлять сообщение, командой /choose.")
+        update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
 
     msg_text = update.message.text
@@ -154,7 +164,8 @@ def forward_message(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_message))
 
-# Обработчик команды /edit для редактирования пересланного сообщения
+### Редактирование пересланных сообщений
+
 def edit_message(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для редактирования сообщений.")
@@ -187,7 +198,8 @@ def edit_message(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(CommandHandler("edit", edit_message, pass_args=True))
 
-# Временный обработчик для получения ID чата (для отладки)
+### Дополнительный обработчик для отладки
+
 def get_chat_id(update: Update, context: CallbackContext):
     chat_id = update.message.chat.id
     update.message.reply_text(f"ID этой группы: {chat_id}")
@@ -195,10 +207,10 @@ def get_chat_id(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(CommandHandler("getid", get_chat_id))
 
-# Создаем Flask-приложение
+### Flask-приложение и вебхук
+
 app = Flask(__name__)
 
-# Маршрут для приема вебхуков от Telegram
 @app.route('/webhook', methods=['POST'])
 def webhook():
     json_data = request.get_json(force=True)
@@ -207,7 +219,6 @@ def webhook():
     dispatcher.process_update(update)
     return "OK", 200
 
-# Маршрут для проверки работы сервиса
 @app.route('/', methods=['GET'])
 def index():
     return "Bot is running", 200
