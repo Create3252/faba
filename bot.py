@@ -118,10 +118,10 @@ def handle_main_menu(update: Update, context: CallbackContext):
 
                 # Формируем кликабельную ссылку
                 if chat_info.username:
-                    link = f"https://t.me/{chat_info.username}"
-                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a> - {count}")
+                   link = f"https://t.me/{chat_info.username}"
+                   info_lines.append(f"<a href='{link}'>{chat_info.title}</a>\n- {count}")
                 else:
-                    info_lines.append(f"{chat_info.title} - {count}")
+                    info_lines.append(f"{chat_info.title}\n- {count}")
 
             except Exception as e:
                 logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
