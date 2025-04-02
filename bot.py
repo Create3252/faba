@@ -90,48 +90,48 @@ def handle_main_menu(update: Update, context: CallbackContext):
         context.user_data["pending_destination"] = True
 
     elif choice == "Список чатов":
-        # Формируем кликабельный список чатов с количеством участников
-        info_lines = ["Список чатов ФАБА:"]
-        # Список ID, которых не учитываем
-        ignore_ids = [
-            296920330, 7905869507, 320303183,
-            533773, 327650534, 136737738, 1283190854, 1607945564
-        ]
-        for chat_id in TARGET_CHATS:
-            try:
-                chat_info = bot.get_chat(chat_id)
-                # Получаем общее количество участников
-                count = bot.get_chat_member_count(chat_id)
+    info_lines = ["Список чатов ФАБА:"]
+    # Список ID, которых не учитываем при подсчёте
+    ignore_ids = [
+        296920330, 7905869507, 320303183,
+        533773, 327650534, 136737738, 1283190854, 1607945564
+    ]
+    for chat_id in TARGET_CHATS:
+        try:
+            chat_info = bot.get_chat(chat_id)
+            # Используем get_chat_member_count вместо устаревшего get_chat_members_count
+            count = bot.get_chat_member_count(chat_id)
 
-                # Вычитаем пользователей из ignore_ids, если они присутствуют
-                for ignore_id in ignore_ids:
-                    try:
-                        member = bot.get_chat_member(chat_id, ignore_id)
-                        if member.status not in ["left", "kicked"]:
-                            count -= 1
-                    except Exception as e:
-                        # Если Participant_id_invalid, просто игнорируем
-                        if "Participant_id_invalid" in str(e):
-                            continue
-                        else:
-                            logging.error(f"Ошибка при проверке пользователя {ignore_id} для чата {chat_id}: {e}")
+            # Вычитаем пользователей из ignore_ids, если они присутствуют
+            for ignore_id in ignore_ids:
+                try:
+                    member = bot.get_chat_member(chat_id, ignore_id)
+                    if member.status not in ["left", "kicked"]:
+                        count -= 1
+                except Exception as e:
+                    # Если ошибка participant_id_invalid, пропускаем
+                    if "Participant_id_invalid" in str(e):
+                        continue
+                    else:
+                        logging.error(f"Ошибка при проверке пользователя {ignore_id} для чата {chat_id}: {e}")
 
-                # Формируем кликабельную ссылку
-                if chat_info.username:
-                   link = f"https://t.me/{chat_info.username}"
-                   info_lines.append(f"<a href='{link}'>{chat_info.title}</a>\n- {count}")
-                else:
-                    info_lines.append(f"{chat_info.title}\n- {count}")
+            # Формируем кликабельную ссылку, если есть публичный username
+            if chat_info.username:
+                link = f"https://t.me/{chat_info.username}"
+                info_lines.append(f"<a href='{link}'>{chat_info.title}</a> — количество членов: {count}")
+            else:
+                info_lines.append(f"{chat_info.title} — количество членов: {count}")
 
-            except Exception as e:
-                logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
-                info_lines.append("Информация для чата недоступна.")
+        except Exception as e:
+            logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
+            info_lines.append("Информация для чата недоступна.")
 
-        # Отправляем сообщение с отключённым предпросмотром ссылок
-        update.message.reply_text(
-            "\n".join(info_lines),
-            parse_mode="HTML",
-            disable_web_page_preview=True
+    # Отправляем одним сообщением
+    update.message.reply_text(
+        "\n".join(info_lines),
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
         )
 
     else:
