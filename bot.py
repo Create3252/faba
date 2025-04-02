@@ -88,28 +88,27 @@ def handle_main_menu(update: Update, context: CallbackContext):
         update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
         context.user_data["pending_destination"] = True
     elif choice == "Список чатов":
-        # Формируем кликабельный список чатов
+        # Формируем кликабельный список чатов с информацией о количестве участников
         info_lines = ["Список чатов ФАБА:"]
         for chat_id in TARGET_CHATS:
             try:
                 chat_info = bot.get_chat(chat_id)
-                link = None
+                count = bot.get_chat_members_count(chat_id)
+                try:
+                    member = bot.get_chat_member(chat_id, 296920330)
+                    if member.status not in ["left", "kicked"]:
+                        count -= 1
+                except Exception as e:
+                    logging.error(f"Ошибка при проверке пользователя 296920330 для чата {chat_id}: {e}")
                 if chat_info.username:
                     link = f"https://t.me/{chat_info.username}"
+                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a> - {count}")
                 else:
-                    try:
-                        # Получаем invite-ссылку, если бот администратор и имеет права
-                        link = bot.export_chat_invite_link(chat_id)
-                    except Exception as e:
-                        logging.error(f"Ошибка при получении invite-ссылки для чата {chat_id}: {e}")
-                if link:
-                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a>")
-                else:
-                    info_lines.append(chat_info.title)
+                    info_lines.append(f"{chat_info.title} - {count}")
             except Exception as e:
                 logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
                 info_lines.append("Информация для чата недоступна.")
-        update.message.reply_text("\n".join(info_lines), parse_mode="HTML")
+        update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True)
     else:
         update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
     context.user_data.pop("pending_main_menu", None)
@@ -142,7 +141,6 @@ def forward_message(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
-    # Для каждого нового сообщения требуем выбор через /menu
     if "selected_chats" not in context.user_data:
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
@@ -161,7 +159,6 @@ def forward_message(update: Update, context: CallbackContext):
     if forwarded:
         forwarded_messages[update.message.message_id] = forwarded
         update.message.reply_text(f"Сообщение отправлено в: {selected_option}")
-    # Очищаем выбор для нового сообщения
     context.user_data.pop("selected_chats", None)
     context.user_data.pop("selected_option", None)
 
