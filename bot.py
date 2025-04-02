@@ -90,53 +90,45 @@ def handle_main_menu(update: Update, context: CallbackContext):
         context.user_data["pending_destination"] = True
 
     elif choice == "Список чатов":
-    info_lines = ["Список чатов ФАБА:"]
-    # Список ID, которых не учитываем при подсчёте
-    ignore_ids = [
-        296920330, 7905869507, 320303183,
-        533773, 327650534, 136737738, 1283190854, 1607945564
-    ]
-    for chat_id in TARGET_CHATS:
-        try:
-            chat_info = bot.get_chat(chat_id)
-            # Используем get_chat_member_count вместо устаревшего get_chat_members_count
-            count = bot.get_chat_member_count(chat_id)
-
-            # Вычитаем пользователей из ignore_ids, если они присутствуют
-            for ignore_id in ignore_ids:
-                try:
-                    member = bot.get_chat_member(chat_id, ignore_id)
-                    if member.status not in ["left", "kicked"]:
-                        count -= 1
-                except Exception as e:
-                    # Если ошибка participant_id_invalid, пропускаем
-                    if "Participant_id_invalid" in str(e):
-                        continue
-                    else:
-                        logging.error(f"Ошибка при проверке пользователя {ignore_id} для чата {chat_id}: {e}")
-
-            # Формируем кликабельную ссылку, если есть публичный username
-            if chat_info.username:
-                link = f"https://t.me/{chat_info.username}"
-                info_lines.append(f"<a href='{link}'>{chat_info.title}</a> — количество членов: {count}")
-            else:
-                info_lines.append(f"{chat_info.title} — количество членов: {count}")
-
-        except Exception as e:
-            logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
-            info_lines.append("Информация для чата недоступна.")
-
-    # Отправляем одним сообщением
-    update.message.reply_text(
-        "\n".join(info_lines),
-        parse_mode="HTML",
-        disable_web_page_preview=True
-    )
+        info_lines = ["Список чатов ФАБА:"]
+        # Список ID, которых не учитываем при подсчёте
+        ignore_ids = [
+            296920330, 7905869507, 320303183,
+            533773, 327650534, 136737738, 1283190854, 1607945564
+        ]
+        for chat_id in TARGET_CHATS:
+            try:
+                chat_info = bot.get_chat(chat_id)
+                # Используем get_chat_member_count вместо устаревшего get_chat_members_count
+                count = bot.get_chat_member_count(chat_id)
+                # Вычитаем пользователей из ignore_ids, если они присутствуют
+                for ignore_id in ignore_ids:
+                    try:
+                        member = bot.get_chat_member(chat_id, ignore_id)
+                        if member.status not in ["left", "kicked"]:
+                            count -= 1
+                    except Exception as e:
+                        if "Participant_id_invalid" in str(e):
+                            continue
+                        else:
+                            logging.error(f"Ошибка при проверке пользователя {ignore_id} для чата {chat_id}: {e}")
+                # Формируем кликабельную ссылку, если есть публичный username
+                if chat_info.username:
+                    link = f"https://t.me/{chat_info.username}"
+                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a> — количество членов: {count}")
+                else:
+                    info_lines.append(f"{chat_info.title} — количество членов: {count}")
+            except Exception as e:
+                logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
+                info_lines.append("Информация для чата недоступна.")
+        update.message.reply_text(
+            "\n".join(info_lines),
+            parse_mode="HTML",
+            disable_web_page_preview=True
         )
 
     else:
         update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
-
     context.user_data.pop("pending_main_menu", None)
 
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Написать сообщение|Список чатов)$"), handle_main_menu))
@@ -147,7 +139,6 @@ def handle_destination_choice(update: Update, context: CallbackContext):
         return
     if "pending_destination" not in context.user_data:
         return
-
     choice = update.message.text.strip()
     if choice in CHAT_OPTIONS:
         context.user_data["selected_chats"] = CHAT_OPTIONS[choice]
@@ -155,7 +146,6 @@ def handle_destination_choice(update: Update, context: CallbackContext):
         update.message.reply_text(f"Вы выбрали: {choice}. Теперь отправьте сообщение.")
     else:
         update.message.reply_text("Неверный выбор. Используйте /choose для повторного выбора.")
-
     context.user_data.pop("pending_destination", None)
 
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Тюмень|Москва|Оба)$"), handle_destination_choice))
