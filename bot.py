@@ -88,14 +88,13 @@ def handle_main_menu(update: Update, context: CallbackContext):
         update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
         context.user_data["pending_destination"] = True
     elif choice == "Список чатов":
-    # Формируем кликабельный список чатов ФАБА с количеством участников
+    # Формируем кликабельный список чатов с количеством участников
     info_lines = ["Список чатов ФАБА:"]
     ignore_ids = [296920330, 7905869507, 320303183]
     for chat_id in TARGET_CHATS:
         try:
             chat_info = bot.get_chat(chat_id)
             count = bot.get_chat_members_count(chat_id)
-            # Вычитаем пользователей с указанными ID, если они присутствуют
             for ignore_id in ignore_ids:
                 try:
                     member = bot.get_chat_member(chat_id, ignore_id)
