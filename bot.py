@@ -35,7 +35,7 @@ CHAT_OPTIONS = {
 }
 
 # Список ID пользователей, которым разрешено использовать бота
-ALLOWED_USER_IDS = [296920330, 320303183]  # Добавьте нужные ID
+ALLOWED_USER_IDS = [296920330, 320303183]
 
 # Глобальный словарь для хранения пересланных сообщений.
 # Ключ: ID исходного сообщения (в личном чате), значение: словарь {chat_id: forwarded_message_id}
@@ -88,27 +88,33 @@ def handle_main_menu(update: Update, context: CallbackContext):
         update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
         context.user_data["pending_destination"] = True
     elif choice == "Список чатов":
-        # Формируем кликабельный список чатов
+        # Формируем кликабельный список чатов с количеством участников
         info_lines = ["Список чатов ФАБА:"]
+        ignore_ids = [296920330, 7905869507, 320303183, 533773, 327650534, 136737738, 1283190854, 1607945564]
         for chat_id in TARGET_CHATS:
             try:
                 chat_info = bot.get_chat(chat_id)
-                link = None
+                count = bot.get_chat_member_count(chat_id)
+                for ignore_id in ignore_ids:
+                    try:
+                        member = bot.get_chat_member(chat_id, ignore_id)
+                        if member.status not in ["left", "kicked"]:
+                            count -= 1
+                    except Exception as e:
+                        if "Participant_id_invalid" in str(e):
+                            continue
+                        else:
+                            logging.error(f"Ошибка при проверке пользователя {ignore_id} для чата {chat_id}: {e}")
                 if chat_info.username:
                     link = f"https://t.me/{chat_info.username}"
+                    # Формируем строку: кликабельная ссылка и информация о количестве членов
+                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a> — количество членов: {count}")
                 else:
-                    try:
-                        link = bot.export_chat_invite_link(chat_id)
-                    except Exception as e:
-                        logging.error(f"Ошибка при получении invite-ссылки для чата {chat_id}: {e}")
-                if link:
-                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a>")
-                else:
-                    info_lines.append(chat_info.title)
+                    info_lines.append(f"{chat_info.title} — количество членов: {count}")
             except Exception as e:
                 logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
                 info_lines.append("Информация для чата недоступна.")
-        update.message.reply_text("\n".join(info_lines), parse_mode="HTML")
+        update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True)
     else:
         update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
     context.user_data.pop("pending_main_menu", None)
@@ -135,7 +141,6 @@ dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.
 ### Отправка сообщения
 
 def forward_message(update: Update, context: CallbackContext):
-    # Обработка только личных сообщений
     if update.message.chat.type != "private":
         return
     if update.message.from_user.id not in ALLOWED_USER_IDS:
