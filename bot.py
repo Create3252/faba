@@ -90,7 +90,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
     elif choice == "Список чатов":
         # Формируем кликабельный список чатов с количеством участников
         info_lines = ["Список чатов ФАБА:"]
-        ignore_ids = [296920330, 7905869507, 320303183]
+        ignore_ids = [296920330, 7905869507, 320303183, 533773, 327650534, 136737738, 1283190854, 1607945564]
         for chat_id in TARGET_CHATS:
             try:
                 chat_info = bot.get_chat(chat_id)
