@@ -55,7 +55,7 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
             time.sleep(delay)
     return None
 
-# Инициализация бота и диспетчера с несколькими рабочими потоками
+# Инициализация бота и диспетчера
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
@@ -98,7 +98,6 @@ def handle_main_menu(update: Update, context: CallbackContext):
                     link = f"https://t.me/{chat_info.username}"
                 else:
                     try:
-                        # Получаем invite-ссылку, если бот администратор и имеет права
                         link = bot.export_chat_invite_link(chat_id)
                     except Exception as e:
                         logging.error(f"Ошибка при получении invite-ссылки для чата {chat_id}: {e}")
@@ -142,11 +141,9 @@ def forward_message(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
-    # Для каждого нового сообщения требуем выбор через /menu
     if "selected_chats" not in context.user_data:
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
-
     msg_text = update.message.text
     selected_option = context.user_data.get("selected_option", "неизвестно")
     update.message.reply_text("Сообщение поставлено в очередь отправки!")
@@ -161,7 +158,6 @@ def forward_message(update: Update, context: CallbackContext):
     if forwarded:
         forwarded_messages[update.message.message_id] = forwarded
         update.message.reply_text(f"Сообщение отправлено в: {selected_option}")
-    # Очищаем выбор для нового сообщения
     context.user_data.pop("selected_chats", None)
     context.user_data.pop("selected_option", None)
 
@@ -184,7 +180,6 @@ def edit_message(update: Update, context: CallbackContext):
     if original_id not in forwarded_messages:
         update.message.reply_text("Не найдены пересланные сообщения для редактирования. Убедитесь, что вы отвечаете на правильное сообщение.")
         return
-
     edits = forwarded_messages[original_id]
     success = True
     for chat_id, fwd_msg_id in edits.items():
