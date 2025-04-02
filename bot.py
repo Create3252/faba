@@ -35,10 +35,11 @@ CHAT_OPTIONS = {
 }
 
 # Список ID пользователей, которым разрешено использовать бота
-ALLOWED_USER_IDS = [296920330, 320303183]  # Добавьте нужные ID
+ALLOWED_USER_IDS = [296920330, 320303183]
 
 # Глобальный словарь для хранения пересланных сообщений.
-# Ключ: ID исходного сообщения (в личном чате), значение: словарь {chat_id: forwarded_message_id}
+# Ключ: ID исходного сообщения (в личном чате),
+# значение: словарь {chat_id: forwarded_message_id}
 forwarded_messages = {}
 
 # Функция для отправки сообщения с повторными попытками
@@ -55,7 +56,7 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
             time.sleep(delay)
     return None
 
-# Инициализация бота и диспетчера с несколькими рабочими потоками
+# Инициализация бота и диспетчера
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
@@ -82,13 +83,11 @@ def handle_main_menu(update: Update, context: CallbackContext):
         return
     choice = update.message.text.strip()
     if choice == "Написать сообщение":
-        # Выводим клавиатуру для выбора чатов
         keyboard = [["Тюмень", "Москва"], ["Оба"]]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
         context.user_data["pending_destination"] = True
     elif choice == "Список чатов":
-        # Формируем кликабельный список чатов с количеством участников
         info_lines = ["Список чатов ФАБА:"]
         ignore_ids = [296920330, 7905869507, 320303183, 533773, 327650534, 136737738, 1283190854, 1607945564]
         for chat_id in TARGET_CHATS:
@@ -140,7 +139,6 @@ dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.
 ### Отправка сообщения
 
 def forward_message(update: Update, context: CallbackContext):
-    # Обработка только личных сообщений
     if update.message.chat.type != "private":
         return
     if update.message.from_user.id not in ALLOWED_USER_IDS:
