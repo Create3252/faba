@@ -27,7 +27,7 @@ TARGET_CHATS = [
     -1002596576819,  # Чат Москвы
 ]
 
-# Маппинг для выбора чатов
+# Маппинг для выбора чатов (для отправки сообщений)
 CHAT_OPTIONS = {
     "Тюмень": [TARGET_CHATS[0]],
     "Москва": [TARGET_CHATS[1]],
@@ -60,18 +60,42 @@ req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
-# Команда /start
-def start(update: Update, context: CallbackContext):
+# Команда /menu – основное меню, где пользователь выбирает дальнейшее действие
+def menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
         return
-    update.message.reply_text(
-        "Привет! Для отправки сообщения в чаты сперва выберите, куда его отправлять, командой /choose."
-    )
+    keyboard = [["Написать сообщение", "Список чатов"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    update.message.reply_text("Выберите, что вы хотите:", reply_markup=reply_markup)
 
-dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(CommandHandler("menu", menu))
 
-# Команда /choose – выводит клавиатуру с вариантами выбора
+# Обработчик для выбора пункта из меню
+def handle_menu_choice(update: Update, context: CallbackContext):
+    if update.message.from_user.id not in ALLOWED_USER_IDS:
+        return
+    choice = update.message.text.strip()
+    if choice == "Написать сообщение":
+        update.message.reply_text("Для отправки сообщения используйте команду /choose, а затем отправьте текст.")
+    elif choice == "Список чатов":
+        # Собираем информацию по каждому чату
+        info_lines = []
+        for chat_id in TARGET_CHATS:
+            try:
+                chat_info = bot.get_chat(chat_id)
+                # Например, используем название чата
+                info_lines.append(f"{chat_info.title} (ID: {chat_id})")
+            except Exception as e:
+                logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
+                info_lines.append(f"Чат с ID {chat_id}: информация недоступна.")
+        update.message.reply_text("Список чатов:\n" + "\n".join(info_lines))
+    else:
+        update.message.reply_text("Неверный выбор. Попробуйте еще раз, используя /menu.")
+
+dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Написать сообщение|Список чатов)$"), handle_menu_choice))
+
+# Команда /choose – выводит клавиатуру с вариантами выбора для отправки сообщений
 def choose(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
@@ -82,7 +106,7 @@ def choose(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(CommandHandler("choose", choose))
 
-# Обработчик для выбора варианта
+# Обработчик для выбора варианта для отправки
 def handle_choice(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
@@ -96,15 +120,6 @@ def handle_choice(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Тюмень|Москва|Оба)$"), handle_choice))
 
-# Команда /publish_directory (пример другой функции)
-def publish_directory(update: Update, context: CallbackContext):
-    if update.message.from_user.id not in ALLOWED_USER_IDS:
-        update.message.reply_text("У вас нет прав для использования этого бота.")
-        return
-    update.message.reply_text("Команда publish_directory вызвана.")
-
-dispatcher.add_handler(CommandHandler("publish_directory", publish_directory))
-
 # Обработчик входящих текстовых сообщений для пересылки
 def forward_message(update: Update, context: CallbackContext):
     # Обработка только личных сообщений
@@ -114,7 +129,7 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
 
-    # Каждый раз для нового сообщения требуем выбор
+    # Для каждого нового сообщения требуем выбор через /choose
     if "selected_chats" not in context.user_data:
         update.message.reply_text("Сначала выберите, куда отправлять сообщение, командой /choose.")
         return
