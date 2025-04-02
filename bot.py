@@ -55,14 +55,14 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
             time.sleep(delay)
     return None
 
-# Инициализация бота и диспетчера
+# Инициализация бота и диспетчера с несколькими рабочими потоками
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
 ### Главное меню и обработчики выбора
 
-# Обработчик команды /menu – выводит главное меню с двумя кнопками
+# Команда /menu – выводит главное меню с двумя кнопками
 def menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
@@ -70,7 +70,6 @@ def menu(update: Update, context: CallbackContext):
     keyboard = [["Написать сообщение", "Список чатов"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
-    # Устанавливаем флаг, что ждем выбора из главного меню
     context.user_data["pending_main_menu"] = True
 
 dispatcher.add_handler(CommandHandler("menu", menu))
@@ -83,36 +82,41 @@ def handle_main_menu(update: Update, context: CallbackContext):
         return
     choice = update.message.text.strip()
     if choice == "Написать сообщение":
-        # Показываем клавиатуру для выбора чатов
+        # Выводим клавиатуру для выбора чатов
         keyboard = [["Тюмень", "Москва"], ["Оба"]]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
+        context.user_data["pending_destination"] = True
     elif choice == "Список чатов":
-        # Формируем сообщение с информацией по чатам
+        # Формируем кликабельный список чатов
         info_lines = ["Список чатов ФАБА:"]
         for chat_id in TARGET_CHATS:
             try:
                 chat_info = bot.get_chat(chat_id)
-                # Если у чата есть публичный username, формируем кликабельную ссылку
+                link = None
                 if chat_info.username:
-                    info_lines.append(f"<a href='https://t.me/{chat_info.username}'>{chat_info.title}</a>")
+                    link = f"https://t.me/{chat_info.username}"
+                else:
+                    try:
+                        # Получаем invite-ссылку, если бот администратор и имеет права
+                        link = bot.export_chat_invite_link(chat_id)
+                    except Exception as e:
+                        logging.error(f"Ошибка при получении invite-ссылки для чата {chat_id}: {e}")
+                if link:
+                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a>")
                 else:
                     info_lines.append(chat_info.title)
             except Exception as e:
                 logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
-                info_lines.append("Информация недоступна")
+                info_lines.append("Информация для чата недоступна.")
         update.message.reply_text("\n".join(info_lines), parse_mode="HTML")
     else:
         update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
-    # Снимаем флаг главного меню
     context.user_data.pop("pending_main_menu", None)
-    # Если выбор был "Написать сообщение", устанавливаем флаг, чтобы ожидать выбора чатов
-    if choice == "Написать сообщение":
-        context.user_data["pending_destination"] = True
 
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Написать сообщение|Список чатов)$"), handle_main_menu))
 
-# Обработчик для выбора чатов (появляется после выбора "Написать сообщение")
+# Обработчик для выбора чатов (после выбора "Написать сообщение")
 def handle_destination_choice(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
@@ -131,7 +135,6 @@ dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.
 
 ### Отправка сообщения
 
-# Обработчик входящих текстовых сообщений для пересылки
 def forward_message(update: Update, context: CallbackContext):
     # Обработка только личных сообщений
     if update.message.chat.type != "private":
@@ -139,7 +142,7 @@ def forward_message(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
-    # Если пользователь не выбрал пункт для отправки, напомним ему вызвать /menu
+    # Для каждого нового сообщения требуем выбор через /menu
     if "selected_chats" not in context.user_data:
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
@@ -158,7 +161,7 @@ def forward_message(update: Update, context: CallbackContext):
     if forwarded:
         forwarded_messages[update.message.message_id] = forwarded
         update.message.reply_text(f"Сообщение отправлено в: {selected_option}")
-    # Очищаем выбор, чтобы для каждого нового сообщения выбор делался заново
+    # Очищаем выбор для нового сообщения
     context.user_data.pop("selected_chats", None)
     context.user_data.pop("selected_option", None)
 
