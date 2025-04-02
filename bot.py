@@ -101,7 +101,10 @@ def handle_main_menu(update: Update, context: CallbackContext):
                         if member.status not in ["left", "kicked"]:
                             count -= 1
                     except Exception as e:
-                        logging.error(f"Ошибка при проверке пользователя {ignore_id} для чата {chat_id}: {e}")
+                        if "Participant_id_invalid" in str(e):
+                            continue
+                        else:
+                            logging.error(f"Ошибка при проверке пользователя {ignore_id} для чата {chat_id}: {e}")
                 if chat_info.username:
                     link = f"https://t.me/{chat_info.username}"
                     info_lines.append(f"<a href='{link}'>{chat_info.title}</a> - {count}")
