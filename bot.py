@@ -88,29 +88,24 @@ def handle_main_menu(update: Update, context: CallbackContext):
         update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
         context.user_data["pending_destination"] = True
     elif choice == "Список чатов":
-        # Формируем кликабельный список чатов с количеством участников
+        # Формируем кликабельный список чатов без количества членов
         info_lines = ["Список чатов ФАБА:"]
-        ignore_ids = [296920330, 7905869507, 320303183, 533773, 327650534, 136737738, 1283190854, 1607945564]
         for chat_id in TARGET_CHATS:
             try:
                 chat_info = bot.get_chat(chat_id)
-                count = bot.get_chat_member_count(chat_id)
-                for ignore_id in ignore_ids:
-                    try:
-                        member = bot.get_chat_member(chat_id, ignore_id)
-                        if member.status not in ["left", "kicked"]:
-                            count -= 1
-                    except Exception as e:
-                        if "Participant_id_invalid" in str(e):
-                            continue
-                        else:
-                            logging.error(f"Ошибка при проверке пользователя {ignore_id} для чата {chat_id}: {e}")
+                link = None
                 if chat_info.username:
                     link = f"https://t.me/{chat_info.username}"
-                    # Переносим ссылку на отдельную строку для корректного HTML
-                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a>\n— количество членов: {count}")
                 else:
-                    info_lines.append(f"{chat_info.title}\n— количество членов: {count}")
+                    try:
+                        # Если бот имеет права, можно попробовать экспортировать invite-ссылку
+                        link = bot.export_chat_invite_link(chat_id)
+                    except Exception as e:
+                        logging.error(f"Ошибка при получении invite-ссылки для чата {chat_id}: {e}")
+                if link:
+                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a>")
+                else:
+                    info_lines.append(chat_info.title)
             except Exception as e:
                 logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
                 info_lines.append("Информация для чата недоступна.")
