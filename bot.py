@@ -108,7 +108,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
                 if chat_info.username:
                     link = f"https://t.me/{chat_info.username}"
                     # Формируем строку: кликабельная ссылка и информация о количестве членов
-                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a> — количество членов: {count}")
+                    info_lines.append(f'<a href="{link}">{chat_info.title}</a>\n— количество членов: {count}')
                 else:
                     info_lines.append(f"{chat_info.title} — количество членов: {count}")
             except Exception as e:
@@ -117,7 +117,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
         update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True)
     else:
         update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
-    context.user_data.pop("pending_main_menu", None)
+    context.user_data.pop("pending_mainfo_lines.append(f'<a href="{link}">{chat_info.title}</a>\n— количество членов: {count}')in_menu", None)
 
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Написать сообщение|Список чатов)$"), handle_main_menu))
 
