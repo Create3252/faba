@@ -217,6 +217,10 @@ def webhook():
     dispatcher.process_update(update)
     return "OK", 200
 
+@app.route('/ping', methods=['GET'])  # <- Добавляешь вот это
+def ping():
+    return "pong", 200
+
 @app.route('/', methods=['GET'])
 def index():
     return "Bot is running", 200
