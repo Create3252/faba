@@ -21,36 +21,13 @@ if not BOT_TOKEN:
 if not WEBHOOK_URL:
     raise ValueError("Не указан URL для вебхука (WEBHOOK_URL)")
 
-# Тестовые чаты (режим "Написать сообщение") – переименованы в Тест 1 и Тест 2
+# Список ID групп (групповые чаты должны иметь ID вида -100XXXXXXXXXX)
 TARGET_CHATS = [
     -1002584369534,  # Тест 1
     -1002596576819,  # Тест 2
 ]
 
-# База данных городов (режим "Отправить сообщение во все чаты ФАБА")
-ALL_CITIES = [
-    {"name": "Тюмень", "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
-    {"name": "Новосибирск", "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
-    {"name": "Сахалин", "link": "https://t.me/+FzQ_jEYX8AtkMzNi", "chat_id": -1002265902434},
-    {"name": "Красноярск", "link": "https://t.me/+lMTDVPF0syRiYzdi", "chat_id": -1002311750873},
-    {"name": "Санкт-Петербург", "link": "https://t.me/+EWj9jKhAvV82NWIy", "chat_id": -1002152780476},
-    {"name": "Москва", "link": "https://t.me/+qokFNNnfhQdiYjQy", "chat_id": -1002182445604},
-    {"name": "Екатеринбург", "link": "https://t.me/+J2ESyZJyOAk2YzYy", "chat_id": -1002392430562},
-    {"name": "Иркутск", "link": "https://t.me/+TAoCnfoePUJmNzhi", "chat_id": -1002255012184},
-    {"name": "Оренбург", "link": "https://t.me/+-Y_1N0HnePUxZjZi", "chat_id": -1002316600732},
-    {"name": "Крым", "link": "https://t.me/+uC5IEnQWsmFhM2Ni", "chat_id": -4588099495},
-    {"name": "Чита", "link": "https://t.me/+yMeI0CjltLphZWYy", "chat_id": -4587730161},
-    {"name": "Волгоград", "link": "https://t.me/+ODxw0mfq73M4NGFi", "chat_id": -1002562049204},
-    {"name": "Краснодар", "link": "https://t.me/+a9_1fWyGvAc1NzZi", "chat_id": -1002297851122},
-    {"name": "Пермь", "link": "https://t.me/+lgM27u0cnp8wNjAy", "chat_id": -4587345787},
-    {"name": "Самара", "date": "15.04.2025", "link": "https://t.me/+SLCllcYKCUFlNjk6", "chat_id": -1002589409715},
-    {"name": "Владивосток", "link": "https://t.me/+Dpb3ozk_4Dc5OTYy", "chat_id": -1002438533236},
-    {"name": "Донецк", "link": "https://t.me/+nGkS5gfvvQxjNmRi", "chat_id": -1002328107804},
-    {"name": "Хабаровск", "link": "https://t.me/+SrnvRbMo3bA5NzVi", "chat_id": -1002480768813},
-    {"name": "Челябинск", "link": None, "chat_id": -1002374636424},
-]
-
-# Маппинг для выбора чатов в режиме "Написать сообщение" (используются тестовые чаты)
+# Маппинг для выбора чатов (для отправки сообщений)
 CHAT_OPTIONS = {
     "Тест 1": [TARGET_CHATS[0]],
     "Тест 2": [TARGET_CHATS[1]],
@@ -58,9 +35,10 @@ CHAT_OPTIONS = {
 }
 
 # Список ID пользователей, которым разрешено использовать бота
-ALLOWED_USER_IDS = [296920330, 320303183]
+ALLOWED_USER_IDS = [296920330, 320303183]  # Добавьте нужные ID
 
 # Глобальный словарь для хранения пересланных сообщений.
+# Ключ: ID исходного сообщения (в личном чате), значение: словарь {chat_id: forwarded_message_id}
 forwarded_messages = {}
 
 # Функция для отправки сообщения с повторными попытками
@@ -84,13 +62,12 @@ dispatcher = Dispatcher(bot, None, workers=4)
 
 ### Главное меню и обработчики выбора
 
-# Команда /menu – выводит главное меню с тремя кнопками
+# Команда /menu – выводит главное меню с двумя кнопками
 def menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
         return
-    keyboard = [["Написать сообщение", "Список чатов"],
-                ["Отправить сообщение во все чаты ФАБА"]]
+    keyboard = [["Написать сообщение", "Список чатов"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
     context.user_data["pending_main_menu"] = True
@@ -105,42 +82,42 @@ def handle_main_menu(update: Update, context: CallbackContext):
         return
     choice = update.message.text.strip()
     if choice == "Написать сообщение":
-        # Клавиатура для режима "Написать сообщение" (используем тестовые чаты)
-        keyboard = [["Тест 1", "Тест 2"], ["Оба"]]
+        keyboard = [["Тюмень", "Москва"], ["Оба"]]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
-        context.user_data["pending_destination"] = "test"
+        context.user_data["pending_destination"] = True
     elif choice == "Список чатов":
-        # Формируем список чатов с кликабельными ссылками (используем ALL_CITIES)
         info_lines = ["Список чатов ФАБА:"]
-        for city in ALL_CITIES:
+        for chat_id in TARGET_CHATS:
             try:
-                if city["link"]:
-                    info_lines.append(f"<a href='{city['link']}'>{city['name']}</a>")
+                chat_info = bot.get_chat(chat_id)
+                link = None
+                if chat_info.username:
+                    link = f"https://t.me/{chat_info.username}"
                 else:
-                    info_lines.append(city["name"])
+                    try:
+                        link = bot.export_chat_invite_link(chat_id)
+                    except Exception as e:
+                        logging.error(f"Ошибка при получении invite-ссылки для чата {chat_id}: {e}")
+                if link:
+                    info_lines.append(f"<a href='{link}'>{chat_info.title}</a>")
+                else:
+                    info_lines.append(chat_info.title)
             except Exception as e:
-                logging.error(f"Ошибка при обработке информации для города {city['name']}: {e}")
-                info_lines.append(f"{city['name']} - информация недоступна")
+                logging.error(f"Ошибка при получении информации для чата {chat_id}: {e}")
+                info_lines.append("Информация для чата недоступна.")
         update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True)
-    elif choice == "Отправить сообщение во все чаты ФАБА":
-        # Выбираем все чаты из ALL_CITIES
-        chat_ids = [city["chat_id"] for city in ALL_CITIES]
-        context.user_data["selected_chats"] = chat_ids
-        context.user_data["selected_option"] = "Все чаты ФАБА"
-        update.message.reply_text("Вы выбрали: Отправить сообщение во все чаты ФАБА. Теперь отправьте сообщение.")
     else:
         update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
     context.user_data.pop("pending_main_menu", None)
 
-dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & 
-    Filters.regex("^(Написать сообщение|Список чатов|Отправить сообщение во все чаты ФАБА)$"), handle_main_menu))
+dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Написать сообщение|Список чатов)$"), handle_main_menu))
 
-# Обработчик для выбора чатов в режиме "Написать сообщение" (только тестовые чаты)
+# Обработчик для выбора чатов (после выбора "Написать сообщение")
 def handle_destination_choice(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
-    if context.user_data.get("pending_destination") != "test":
+    if "pending_destination" not in context.user_data:
         return
     choice = update.message.text.strip()
     if choice in CHAT_OPTIONS:
@@ -148,11 +125,10 @@ def handle_destination_choice(update: Update, context: CallbackContext):
         context.user_data["selected_option"] = choice
         update.message.reply_text(f"Вы выбрали: {choice}. Теперь отправьте сообщение.")
     else:
-        update.message.reply_text("Неверный выбор. Используйте клавиатуру для повторного выбора.")
+        update.message.reply_text("Неверный выбор. Используйте /choose для повторного выбора.")
     context.user_data.pop("pending_destination", None)
 
-dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & 
-    Filters.regex("^(Тест 1|Тест 2|Оба)$"), handle_destination_choice))
+dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.regex("^(Тюмень|Москва|Оба)$"), handle_destination_choice))
 
 ### Отправка сообщения
 
