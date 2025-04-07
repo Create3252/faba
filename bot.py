@@ -63,7 +63,6 @@ ALLOWED_USER_IDS = [296920330, 320303183]
 # Глобальный словарь для хранения пересланных сообщений.
 forwarded_messages = {}
 
-# Функция для отправки сообщения с повторными попытками
 def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
     attempt = 1
     while attempt <= max_attempts:
@@ -77,24 +76,18 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
             time.sleep(delay)
     return None
 
-# Инициализация бота и диспетчера
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
 ### Главное меню и обработчики выбора
 
-# Команда /menu – выводит главное меню с кнопками:
-# "Написать сообщение" (для тестовых чатов),
-# "Список чатов" (показывает кликабельный список ALL_CITIES),
-# "Отправить сообщение во все чаты ФАБА"
 def menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
         return
     keyboard = [
-        ["Написать сообщение", "Список чатов"],
-        ["Отправить сообщение во все чаты ФАБА"]
+        ["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
@@ -102,21 +95,13 @@ def menu(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(CommandHandler("menu", menu))
 
-# Обработчик выбора в главном меню
 def handle_main_menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
     if "pending_main_menu" not in context.user_data:
         return
     choice = update.message.text.strip()
-    if choice == "Написать сообщение":
-        # Клавиатура для тестовых чатов с кнопками "Тест 1", "Тест 2", "Оба" и "Назад"
-        keyboard = [["Тест 1", "Тест 2"], ["Оба"], ["Назад"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
-        context.user_data["pending_destination"] = "test"
-    elif choice == "Список чатов":
-        # Формируем кликабельный список чатов из ALL_CITIES
+    if choice == "Список чатов ФАБА":
         info_lines = ["Список чатов ФАБА:"]
         for city in ALL_CITIES:
             try:
@@ -127,9 +112,9 @@ def handle_main_menu(update: Update, context: CallbackContext):
             except Exception as e:
                 logging.error(f"Ошибка при обработке информации для города {city['name']}: {e}")
                 info_lines.append(f"{city['name']} - информация недоступна")
-        update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True)
+        back_markup = ReplyKeyboardMarkup([["Назад"]], one_time_keyboard=True, resize_keyboard=True)
+        update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_markup)
     elif choice == "Отправить сообщение во все чаты ФАБА":
-        # Выбираем все чаты из ALL_CITIES для рассылки
         chat_ids = [city["chat_id"] for city in ALL_CITIES]
         context.user_data["selected_chats"] = chat_ids
         context.user_data["selected_option"] = "Все чаты ФАБА"
@@ -142,35 +127,11 @@ def handle_main_menu(update: Update, context: CallbackContext):
     context.user_data.pop("pending_main_menu", None)
 
 dispatcher.add_handler(MessageHandler(
-    Filters.text & ~Filters.command & 
-    Filters.regex("^(Написать сообщение|Список чатов|Отправить сообщение во все чаты ФАБА|Назад)$"), 
+    Filters.text & ~Filters.command &
+    Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Назад)$"),
     handle_main_menu))
 
-# Обработчик для выбора чатов в режиме "Написать сообщение" (тестовые чаты)
-def handle_destination_choice(update: Update, context: CallbackContext):
-    if update.message.from_user.id not in ALLOWED_USER_IDS:
-        return
-    if context.user_data.get("pending_destination") != "test":
-        return
-    choice = update.message.text.strip()
-    if choice == "Назад":
-        menu(update, context)
-        return
-    if choice in CHAT_OPTIONS:
-        context.user_data["selected_chats"] = CHAT_OPTIONS[choice]
-        context.user_data["selected_option"] = choice
-        update.message.reply_text(f"Вы выбрали: {choice}. Теперь отправьте сообщение.")
-    else:
-        update.message.reply_text("Неверный выбор. Используйте клавиатуру для повторного выбора.")
-    context.user_data.pop("pending_destination", None)
-
-dispatcher.add_handler(MessageHandler(
-    Filters.text & ~Filters.command & 
-    Filters.regex("^(Тест 1|Тест 2|Оба|Назад)$"), 
-    handle_destination_choice))
-
 ### Отправка сообщения (без подтверждения)
-
 def forward_message(update: Update, context: CallbackContext):
     if update.message.chat.type != "private":
         return
@@ -200,7 +161,6 @@ def forward_message(update: Update, context: CallbackContext):
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_message))
 
 ### Редактирование пересланных сообщений
-
 def edit_message(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для редактирования сообщений.")
@@ -232,8 +192,36 @@ def edit_message(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(CommandHandler("edit", edit_message, pass_args=True))
 
-### Дополнительный обработчик для отладки
+### Команда для удаления пересланных сообщений
+def delete_message(update: Update, context: CallbackContext):
+    if update.message.from_user.id not in ALLOWED_USER_IDS:
+        update.message.reply_text("У вас нет прав для удаления сообщений.")
+        return
+    if not update.message.reply_to_message:
+        update.message.reply_text("Используйте команду /delete, ответив на пересланное сообщение, которое хотите удалить.")
+        return
+    original_id = update.message.reply_to_message.message_id
+    if original_id not in forwarded_messages:
+        update.message.reply_text("Не найдены пересланные сообщения для удаления. Убедитесь, что вы отвечаете на правильное сообщение.")
+        return
+    deletions = forwarded_messages[original_id]
+    success = True
+    for chat_id, fwd_msg_id in deletions.items():
+        try:
+            bot.delete_message(chat_id=chat_id, message_id=fwd_msg_id)
+            logging.info(f"Сообщение в чате {chat_id} удалено, message_id: {fwd_msg_id}")
+        except Exception as e:
+            logging.error(f"Ошибка при удалении сообщения в чате {chat_id}: {e}")
+            success = False
+    if success:
+        update.message.reply_text("Сообщения удалены.")
+    else:
+        update.message.reply_text("Произошла ошибка при удалении некоторых сообщений.")
+    forwarded_messages.pop(original_id, None)
 
+dispatcher.add_handler(CommandHandler("delete", delete_message))
+
+### Дополнительный обработчик для отладки
 def get_chat_id(update: Update, context: CallbackContext):
     chat_id = update.message.chat.id
     update.message.reply_text(f"ID этой группы: {chat_id}")
@@ -242,7 +230,6 @@ def get_chat_id(update: Update, context: CallbackContext):
 dispatcher.add_handler(CommandHandler("getid", get_chat_id))
 
 ### Flask-приложение и вебхук
-
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
