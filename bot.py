@@ -60,6 +60,9 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
             return sent_message
         except Exception as e:
             logging.error(f"Попытка {attempt}: ошибка при отправке сообщения в чат {chat_id}: {e}")
+            if "Chat not found" in str(e):
+                # Если чат не найден, сразу возвращаем None
+                return None
             attempt += 1
             time.sleep(delay)
     return None
