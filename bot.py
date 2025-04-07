@@ -55,12 +55,13 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
     attempt = 1
     while attempt <= max_attempts:
         try:
-            # Передаем parse_mode="HTML", чтобы жирное форматирование и другие HTML-теги сохранялись
             sent_message = bot.send_message(chat_id=chat_id, text=msg_text, parse_mode="HTML")
             logging.info(f"Сообщение отправлено в чат {chat_id}, message_id: {sent_message.message_id}")
             return sent_message
         except Exception as e:
             logging.error(f"Попытка {attempt}: ошибка при отправке сообщения в чат {chat_id}: {e}")
+            if "Chat not found" in str(e):
+                return None
             attempt += 1
             time.sleep(delay)
     return None
@@ -90,6 +91,11 @@ dispatcher.add_handler(CommandHandler("menu", menu))
 def handle_main_menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
+    # Если пользователь отправил "Назад", возвращаемся в главное меню независимо от состояния
+    if update.message.text.strip() == "Назад":
+        logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
+        menu(update, context)
+        return
     if "pending_main_menu" not in context.user_data:
         return
     choice = update.message.text.strip()
@@ -104,7 +110,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
             except Exception as e:
                 logging.error(f"Ошибка при обработке информации для города {city['name']}: {e}")
                 info_lines.append(f"{city['name']} - информация недоступна")
-        # Добавляем кнопку "Назад" для возврата в главное меню
+        # Добавляем кнопку "Назад"
         back_markup = ReplyKeyboardMarkup([["Назад"]], one_time_keyboard=True, resize_keyboard=True)
         update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_markup)
     elif choice == "Отправить сообщение во все чаты ФАБА":
@@ -170,7 +176,6 @@ def edit_message(update: Update, context: CallbackContext):
     success = True
     for chat_id, fwd_msg_id in edits.items():
         try:
-            # Добавляем parse_mode="HTML", чтобы сохранить жирное форматирование
             bot.edit_message_text(chat_id=chat_id, message_id=fwd_msg_id, text=new_text, parse_mode="HTML")
             logging.info(f"Сообщение в чате {chat_id} отредактировано, message_id: {fwd_msg_id}")
         except Exception as e:
