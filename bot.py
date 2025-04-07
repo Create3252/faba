@@ -32,8 +32,8 @@ ALL_CITIES = [
     {"name": "Екатеринбург", "link": "https://t.me/+J2ESyZJyOAk2YzYy", "chat_id": -1002392430562},
     {"name": "Иркутск", "link": "https://t.me/+TAoCnfoePUJmNzhi", "chat_id": -1002255012184},
     {"name": "Оренбург", "link": "https://t.me/+-Y_1N0HnePUxZjZi", "chat_id": -1002316600732},
-    {"name": "Крым", "link": "https://t.me/+uC5IEnQWsmFhM2Ni", "chat_id": -1002506541314},
-    {"name": "Чита", "link": "https://t.me/+yMeI0CjltLphZWYy", "chat_id": -1002563254789},
+    {"name": "Крым", "link": "https://t.me/+uC5IEnQWsmFhM2Ni", "chat_id": -4588099495},
+    {"name": "Чита", "link": "https://t.me/+yMeI0CjltLphZWYy", "chat_id": -4587730161},
     {"name": "Волгоград", "link": "https://t.me/+ODxw0mfq73M4NGFi", "chat_id": -1002562049204},
     {"name": "Краснодар", "link": "https://t.me/+a9_1fWyGvAc1NzZi", "chat_id": -1002297851122},
     {"name": "Пермь", "link": "https://t.me/+lgM27u0cnp8wNjAy", "chat_id": -4587345787},
@@ -45,24 +45,22 @@ ALL_CITIES = [
 ]
 
 # Список ID пользователей, которым разрешено использовать бота
-ALLOWED_USER_IDS = [296920330, 320303183]
+ALLOWED_USER_IDS = [296920330, 320303183, 533773, 327650534, 136737738, 1607945564]
 
 # Глобальный словарь для хранения пересланных сообщений.
 forwarded_messages = {}
 
-# Функция для отправки сообщения с повторными попытками
+# Функция для отправки сообщения с повторными попытками с сохранением HTML-форматирования
 def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
     attempt = 1
     while attempt <= max_attempts:
         try:
-            sent_message = bot.send_message(chat_id=chat_id, text=msg_text)
+            # Передаем parse_mode="HTML", чтобы жирное форматирование и другие HTML-теги сохранялись
+            sent_message = bot.send_message(chat_id=chat_id, text=msg_text, parse_mode="HTML")
             logging.info(f"Сообщение отправлено в чат {chat_id}, message_id: {sent_message.message_id}")
             return sent_message
         except Exception as e:
             logging.error(f"Попытка {attempt}: ошибка при отправке сообщения в чат {chat_id}: {e}")
-            if "Chat not found" in str(e):
-                # Если чат не найден, сразу возвращаем None
-                return None
             attempt += 1
             time.sleep(delay)
     return None
@@ -90,18 +88,10 @@ dispatcher.add_handler(CommandHandler("menu", menu))
 
 # Обработчик главного меню
 def handle_main_menu(update: Update, context: CallbackContext):
-    # Здесь обработка опций главного меню, включая "Назад"
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
-    # Если пользователь нажал "Назад", вызываем главное меню
-    if update.message.text.strip() == "Назад":
-        logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
-        menu(update, context)
-        return
-
     if "pending_main_menu" not in context.user_data:
         return
-
     choice = update.message.text.strip()
     if choice == "Список чатов ФАБА":
         info_lines = ["Список чатов ФАБА:"]
@@ -114,7 +104,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
             except Exception as e:
                 logging.error(f"Ошибка при обработке информации для города {city['name']}: {e}")
                 info_lines.append(f"{city['name']} - информация недоступна")
-        # Добавляем кнопку "Назад"
+        # Добавляем кнопку "Назад" для возврата в главное меню
         back_markup = ReplyKeyboardMarkup([["Назад"]], one_time_keyboard=True, resize_keyboard=True)
         update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_markup)
     elif choice == "Отправить сообщение во все чаты ФАБА":
@@ -122,12 +112,15 @@ def handle_main_menu(update: Update, context: CallbackContext):
         context.user_data["selected_chats"] = chat_ids
         context.user_data["selected_option"] = "Все чаты ФАБА"
         update.message.reply_text("Вы выбрали: Отправить сообщение во все чаты ФАБА. Теперь отправьте сообщение.")
+    elif choice == "Назад":
+        logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
+        menu(update, context)
     else:
         update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
     context.user_data.pop("pending_main_menu", None)
 
 dispatcher.add_handler(MessageHandler(
-    Filters.text & ~Filters.command & 
+    Filters.text & ~Filters.command &
     Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Назад)$"),
     handle_main_menu))
 
@@ -180,7 +173,8 @@ def edit_message(update: Update, context: CallbackContext):
     success = True
     for chat_id, fwd_msg_id in edits.items():
         try:
-            bot.edit_message_text(chat_id=chat_id, message_id=fwd_msg_id, text=new_text)
+            # Добавляем parse_mode="HTML", чтобы сохранить жирное форматирование
+            bot.edit_message_text(chat_id=chat_id, message_id=fwd_msg_id, text=new_text, parse_mode="HTML")
             logging.info(f"Сообщение в чате {chat_id} отредактировано, message_id: {fwd_msg_id}")
         except Exception as e:
             logging.error(f"Ошибка при редактировании сообщения в чате {chat_id}: {e}")
