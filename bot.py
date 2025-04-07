@@ -112,15 +112,12 @@ def handle_main_menu(update: Update, context: CallbackContext):
         context.user_data["selected_chats"] = chat_ids
         context.user_data["selected_option"] = "Все чаты ФАБА"
         update.message.reply_text("Вы выбрали: Отправить сообщение во все чаты ФАБА. Теперь отправьте сообщение.")
-    elif choice == "Назад":
-        logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
-        menu(update, context)
     else:
         update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
     context.user_data.pop("pending_main_menu", None)
 
 dispatcher.add_handler(MessageHandler(
-    Filters.text & ~Filters.command &
+    Filters.text & ~Filters.command & 
     Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Назад)$"),
     handle_main_menu))
 
