@@ -116,6 +116,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
         update.message.reply_text("Выберите, куда отправлять сообщение:", reply_markup=reply_markup)
         context.user_data["pending_destination"] = "test"
     elif choice == "Список чатов":
+        # Формируем кликабельный список чатов из ALL_CITIES
         info_lines = ["Список чатов ФАБА:"]
         for city in ALL_CITIES:
             try:
@@ -158,7 +159,7 @@ def handle_destination_choice(update: Update, context: CallbackContext):
     if choice in CHAT_OPTIONS:
         context.user_data["selected_chats"] = CHAT_OPTIONS[choice]
         context.user_data["selected_option"] = choice
-        update.message.reply_text(f"Вы выбрали: {choice}. Теперь введите сообщение для отправки.")
+        update.message.reply_text(f"Вы выбрали: {choice}. Теперь отправьте сообщение.")
     else:
         update.message.reply_text("Неверный выбор. Используйте клавиатуру для повторного выбора.")
     context.user_data.pop("pending_destination", None)
@@ -168,9 +169,8 @@ dispatcher.add_handler(MessageHandler(
     Filters.regex("^(Тест 1|Тест 2|Оба|Назад)$"), 
     handle_destination_choice))
 
-### Отправка сообщения с подтверждением
+### Отправка сообщения (без подтверждения)
 
-# При получении текста бот сначала сохраняет его и спрашивает подтверждение
 def forward_message(update: Update, context: CallbackContext):
     if update.message.chat.type != "private":
         return
@@ -180,43 +180,24 @@ def forward_message(update: Update, context: CallbackContext):
     if "selected_chats" not in context.user_data:
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
-    # Сохраняем сообщение в pending_msg и просим подтверждения
-    context.user_data["pending_msg"] = update.message.text
-    keyboard = [["Да", "Нет"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    update.message.reply_text("Вы уверены, что хотите отправить следующее сообщение?\n\n" +
-                              update.message.text, reply_markup=reply_markup)
+    msg_text = update.message.text
+    selected_option = context.user_data.get("selected_option", "неизвестно")
+    update.message.reply_text("Сообщение поставлено в очередь отправки!")
+    forwarded = {}
+    for chat_id in context.user_data["selected_chats"]:
+        logging.info(f"Попытка отправить сообщение в чат {chat_id}: {msg_text}")
+        sent_message = send_message_with_retry(chat_id, msg_text)
+        if sent_message:
+            forwarded[chat_id] = sent_message.message_id
+        else:
+            logging.error(f"Не удалось отправить сообщение в чат {chat_id} после повторных попыток.")
+    if forwarded:
+        forwarded_messages[update.message.message_id] = forwarded
+        update.message.reply_text(f"Сообщение отправлено в: {selected_option}")
+    context.user_data.pop("selected_chats", None)
+    context.user_data.pop("selected_option", None)
 
-dispatcher.add_handler(MessageHandler(
-    Filters.text & ~Filters.command & Filters.regex("^(Да|Нет)$"),
-    lambda update, context: confirm_sending(update, context)
-))
-
-def confirm_sending(update: Update, context: CallbackContext):
-    if update.message.text.strip() == "Да":
-        msg_text = context.user_data.get("pending_msg")
-        if not msg_text:
-            update.message.reply_text("Сообщение не найдено. Попробуйте снова.")
-            return
-        selected_option = context.user_data.get("selected_option", "неизвестно")
-        update.message.reply_text("Сообщение поставлено в очередь отправки!")
-        forwarded = {}
-        for chat_id in context.user_data["selected_chats"]:
-            logging.info(f"Попытка отправить сообщение в чат {chat_id}: {msg_text}")
-            sent_message = send_message_with_retry(chat_id, msg_text)
-            if sent_message:
-                forwarded[chat_id] = sent_message.message_id
-            else:
-                logging.error(f"Не удалось отправить сообщение в чат {chat_id} после повторных попыток.")
-        if forwarded:
-            forwarded_messages[update.message.message_id] = forwarded
-            update.message.reply_text(f"Сообщение отправлено в: {selected_option}")
-        context.user_data.pop("selected_chats", None)
-        context.user_data.pop("selected_option", None)
-        context.user_data.pop("pending_msg", None)
-    else:
-        update.message.reply_text("Отправка отменена.")
-        context.user_data.pop("pending_msg", None)
+dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_message))
 
 ### Редактирование пересланных сообщений
 
