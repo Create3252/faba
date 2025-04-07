@@ -21,12 +21,6 @@ if not BOT_TOKEN:
 if not WEBHOOK_URL:
     raise ValueError("Не указан URL для вебхука (WEBHOOK_URL)")
 
-# Тестовые чаты для режима "Написать сообщение"
-TARGET_CHATS = [
-    -1002584369534,  # Тест 1
-    -1002596576819,  # Тест 2
-]
-
 # База данных городов для полного списка и рассылки во все чаты ФАБА
 ALL_CITIES = [
     {"name": "Тюмень", "date": "31.05.2024", "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
@@ -50,19 +44,13 @@ ALL_CITIES = [
     {"name": "Челябинск", "link": None, "chat_id": -1002374636424},
 ]
 
-# Маппинг для выбора чатов в режиме "Написать сообщение" (тестовые чаты)
-CHAT_OPTIONS = {
-    "Тест 1": [TARGET_CHATS[0]],
-    "Тест 2": [TARGET_CHATS[1]],
-    "Оба": TARGET_CHATS
-}
-
 # Список ID пользователей, которым разрешено использовать бота
 ALLOWED_USER_IDS = [296920330, 320303183]
 
 # Глобальный словарь для хранения пересланных сообщений.
 forwarded_messages = {}
 
+# Функция для отправки сообщения с повторными попытками
 def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
     attempt = 1
     while attempt <= max_attempts:
@@ -76,12 +64,14 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
             time.sleep(delay)
     return None
 
+# Инициализация бота и диспетчера
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
 ### Главное меню и обработчики выбора
 
+# Главное меню: две кнопки – "Список чатов ФАБА" и "Отправить сообщение во все чаты ФАБА"
 def menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
@@ -95,11 +85,20 @@ def menu(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(CommandHandler("menu", menu))
 
+# Обработчик главного меню
 def handle_main_menu(update: Update, context: CallbackContext):
+    # Здесь обработка опций главного меню, включая "Назад"
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
+    # Если пользователь нажал "Назад", вызываем главное меню
+    if update.message.text.strip() == "Назад":
+        logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
+        menu(update, context)
+        return
+
     if "pending_main_menu" not in context.user_data:
         return
+
     choice = update.message.text.strip()
     if choice == "Список чатов ФАБА":
         info_lines = ["Список чатов ФАБА:"]
@@ -112,6 +111,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
             except Exception as e:
                 logging.error(f"Ошибка при обработке информации для города {city['name']}: {e}")
                 info_lines.append(f"{city['name']} - информация недоступна")
+        # Добавляем кнопку "Назад"
         back_markup = ReplyKeyboardMarkup([["Назад"]], one_time_keyboard=True, resize_keyboard=True)
         update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_markup)
     elif choice == "Отправить сообщение во все чаты ФАБА":
@@ -119,15 +119,12 @@ def handle_main_menu(update: Update, context: CallbackContext):
         context.user_data["selected_chats"] = chat_ids
         context.user_data["selected_option"] = "Все чаты ФАБА"
         update.message.reply_text("Вы выбрали: Отправить сообщение во все чаты ФАБА. Теперь отправьте сообщение.")
-    elif choice == "Назад":
-        logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
-        menu(update, context)
     else:
         update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
     context.user_data.pop("pending_main_menu", None)
 
 dispatcher.add_handler(MessageHandler(
-    Filters.text & ~Filters.command &
+    Filters.text & ~Filters.command & 
     Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Назад)$"),
     handle_main_menu))
 
