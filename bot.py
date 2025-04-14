@@ -14,14 +14,14 @@ logging.basicConfig(
 
 # Получаем переменные окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Например, "https://your-app.onrender.com"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Пример: "https://your-app.onrender.com"
 
 if not BOT_TOKEN:
     raise ValueError("Не указан токен бота (BOT_TOKEN)")
 if not WEBHOOK_URL:
     raise ValueError("Не указан URL для вебхука (WEBHOOK_URL)")
 
-# База данных городов для полного списка и рассылки во все чаты ФАБА
+# База данных городов для рассылки во все чаты ФАБА и списка чатов
 ALL_CITIES = [
     {"name": "Тюмень", "date": "31.05.2024", "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
     {"name": "Новосибирск", "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
@@ -42,6 +42,12 @@ ALL_CITIES = [
     {"name": "Донецк", "link": "https://t.me/+nGkS5gfvvQxjNmRi", "chat_id": -1002328107804},
     {"name": "Хабаровск", "link": "https://t.me/+SrnvRbMo3bA5NzVi", "chat_id": -1002480768813},
     {"name": "Челябинск", "link": None, "chat_id": -1002374636424},
+]
+
+# Для тестовой отправки используем отдельный список из двух чатов
+TEST_SEND_CHATS = [
+    -1001234567890,  # Пример chat_id для Москва тест (замените на актуальное)
+    -1009876543210   # Пример chat_id для Тюмень тест (замените на актуальное)
 ]
 
 # Список ID пользователей, которым разрешено использовать бота
@@ -73,13 +79,14 @@ dispatcher = Dispatcher(bot, None, workers=4)
 
 ### Главное меню и обработчики выбора
 
-# Главное меню: две кнопки – "Список чатов ФАБА" и "Отправить сообщение во все чаты ФАБА"
+# Главное меню: три кнопки – "Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА" и "Тестовая отправка"
 def menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
         return
     keyboard = [
-        ["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"]
+        ["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"],
+        ["Тестовая отправка"]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
@@ -91,15 +98,17 @@ dispatcher.add_handler(CommandHandler("menu", menu))
 def handle_main_menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
-    # Если пользователь отправил "Назад", сразу возвращаемся в главное меню
-    if update.message.text.strip() == "Назад":
+    text = update.message.text.strip()
+    # Независимая проверка кнопки "Назад"
+    if text == "Назад":
         logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
         menu(update, context)
         return
+
     if "pending_main_menu" not in context.user_data:
         return
-    choice = update.message.text.strip()
-    if choice == "Список чатов ФАБА":
+
+    if text == "Список чатов ФАБА":
         info_lines = ["Список чатов ФАБА:"]
         for city in ALL_CITIES:
             try:
@@ -113,22 +122,26 @@ def handle_main_menu(update: Update, context: CallbackContext):
         # Добавляем кнопку "Назад"
         back_markup = ReplyKeyboardMarkup([["Назад"]], one_time_keyboard=True, resize_keyboard=True)
         update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_markup)
-    elif choice == "Отправить сообщение во все чаты ФАБА":
+    elif text == "Отправить сообщение во все чаты ФАБА":
         chat_ids = [city["chat_id"] for city in ALL_CITIES]
         context.user_data["selected_chats"] = chat_ids
         context.user_data["selected_option"] = "Все чаты ФАБА"
         update.message.reply_text("Вы выбрали: Отправить сообщение во все чаты ФАБА. Теперь отправьте сообщение.")
+    elif text == "Тестовая отправка":
+        context.user_data["pending_test"] = True
+        update.message.reply_text("Введите ваш текст для тестовой отправки (в тестовые чаты).")
     else:
         update.message.reply_text("Неверный выбор. Используйте /menu для повторного выбора.")
     context.user_data.pop("pending_main_menu", None)
 
 dispatcher.add_handler(MessageHandler(
-    Filters.text & ~Filters.command &
-    Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Назад)$"),
+    Filters.text & ~Filters.command & 
+    Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Тестовая отправка|Назад)$"),
     handle_main_menu))
 
 ### Отправка сообщения (без подтверждения)
 def forward_message(update: Update, context: CallbackContext):
+    # Если это редактирование или другой тип обновления, проверяем, что update.message не None
     if not update.message:
         return
     if update.message.chat.type != "private":
@@ -136,6 +149,26 @@ def forward_message(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
+    
+    # Если флаг pending_test установлен, обрабатываем тестовую отправку
+    if context.user_data.get("pending_test"):
+        msg_text = update.message.text
+        # Сбрасываем флаг
+        context.user_data.pop("pending_test", None)
+        update.message.reply_text("Тестовое сообщение поставлено в очередь отправки!")
+        forwarded = {}
+        for chat_id in TEST_SEND_CHATS:
+            logging.info(f"Тестовая отправка: попытка отправить сообщение в чат {chat_id}: {msg_text}")
+            sent_message = send_message_with_retry(chat_id, msg_text)
+            if sent_message:
+                forwarded[chat_id] = sent_message.message_id
+            else:
+                logging.error(f"Тестовая отправка: не удалось отправить сообщение в чат {chat_id} после повторных попыток.")
+        if forwarded:
+            forwarded_messages[update.message.message_id] = forwarded
+            update.message.reply_text("Тестовое сообщение отправлено.")
+        return
+
     if "selected_chats" not in context.user_data:
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
@@ -247,9 +280,11 @@ def index():
     return "Bot is running", 200
 
 if __name__ == "__main__":
+    # Удаляем предыдущий вебхук и устанавливаем новый
     bot.delete_webhook(drop_pending_updates=True)
     bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     
+    # Задаём порт, который определён переменной окружения PORT
     port = int(os.environ.get("PORT", 5000))
     logging.info(f"Запуск Flask-сервера на порту {port}")
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
