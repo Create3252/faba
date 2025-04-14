@@ -56,7 +56,7 @@ ALLOWED_USER_IDS = [296920330, 320303183, 533773, 327650534, 136737738, 16079455
 # Глобальный словарь для хранения пересланных сообщений.
 forwarded_messages = {}
 
-# Функция для отправки сообщения с повторными попытками с сохранением HTML-форматирования
+# Функция для отправки текстового сообщения с повторными попытками и сохранением HTML-форматирования
 def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
     attempt = 1
     while attempt <= max_attempts:
@@ -78,20 +78,37 @@ def forward_multimedia(update: Update, chat_id):
     if update.message.photo:
         photo_id = update.message.photo[-1].file_id
         logging.info(f"Отправляю фото с file_id: {photo_id}")
-        return bot.send_photo(chat_id=chat_id, photo=photo_id, caption=caption, parse_mode="HTML")
+        try:
+            return bot.send_photo(chat_id=chat_id, photo=photo_id, caption=caption, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке фото: {e}")
+            return None
     elif update.message.video:
         video_id = update.message.video.file_id
         logging.info(f"Отправляю видео с file_id: {video_id}")
-        return bot.send_video(chat_id=chat_id, video=video_id, caption=caption, parse_mode="HTML")
+        try:
+            return bot.send_video(chat_id=chat_id, video=video_id, caption=caption, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке видео: {e}")
+            return None
     elif update.message.audio:
         audio_id = update.message.audio.file_id
         logging.info(f"Отправляю аудио с file_id: {audio_id}")
-        return bot.send_audio(chat_id=chat_id, audio=audio_id, caption=caption, parse_mode="HTML")
+        try:
+            return bot.send_audio(chat_id=chat_id, audio=audio_id, caption=caption, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке аудио: {e}")
+            return None
     elif update.message.document:
         doc_id = update.message.document.file_id
         logging.info(f"Отправляю документ с file_id: {doc_id}")
-        return bot.send_document(chat_id=chat_id, document=doc_id, caption=caption, parse_mode="HTML")
+        try:
+            return bot.send_document(chat_id=chat_id, document=doc_id, caption=caption, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке документа: {e}")
+            return None
     else:
+        # Если медиа не обнаружено, отправляем текст (хотя, как правило, сюда не должны попадать медиа-сообщения)
         return send_message_with_retry(chat_id, update.message.text)
 
 # Инициализация бота и диспетчера
@@ -162,7 +179,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
     context.user_data.pop("pending_main_menu", None)
 
 dispatcher.add_handler(MessageHandler(
-    Filters.text & ~Filters.command & 
+    Filters.text & ~Filters.command &
     Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Тестовая отправка|Назад)$"),
     handle_main_menu))
 
@@ -176,7 +193,7 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
 
-    # Обработка тестовой отправки
+    # Если тестовая отправка – обрабатываем отдельно
     if context.user_data.get("pending_test"):
         msg_text = update.message.text
         context.user_data.pop("pending_test", None)
@@ -230,19 +247,35 @@ def forward_multimedia(update: Update, chat_id):
     if update.message.photo:
         photo_id = update.message.photo[-1].file_id
         logging.info(f"Отправляю фото с file_id: {photo_id}")
-        return bot.send_photo(chat_id=chat_id, photo=photo_id, caption=caption, parse_mode="HTML")
+        try:
+            return bot.send_photo(chat_id=chat_id, photo=photo_id, caption=caption, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке фото: {e}")
+            return None
     elif update.message.video:
         video_id = update.message.video.file_id
         logging.info(f"Отправляю видео с file_id: {video_id}")
-        return bot.send_video(chat_id=chat_id, video=video_id, caption=caption, parse_mode="HTML")
+        try:
+            return bot.send_video(chat_id=chat_id, video=video_id, caption=caption, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке видео: {e}")
+            return None
     elif update.message.audio:
         audio_id = update.message.audio.file_id
         logging.info(f"Отправляю аудио с file_id: {audio_id}")
-        return bot.send_audio(chat_id=chat_id, audio=audio_id, caption=caption, parse_mode="HTML")
+        try:
+            return bot.send_audio(chat_id=chat_id, audio=audio_id, caption=caption, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке аудио: {e}")
+            return None
     elif update.message.document:
         doc_id = update.message.document.file_id
         logging.info(f"Отправляю документ с file_id: {doc_id}")
-        return bot.send_document(chat_id=chat_id, document=doc_id, caption=caption, parse_mode="HTML")
+        try:
+            return bot.send_document(chat_id=chat_id, document=doc_id, caption=caption, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке документа: {e}")
+            return None
     else:
         return send_message_with_retry(chat_id, update.message.text)
 
