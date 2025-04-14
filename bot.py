@@ -44,10 +44,10 @@ ALL_CITIES = [
     {"name": "Челябинск", "link": "https://t.me/+ZKXj5rmcmMw0MzQy", "chat_id": -1002374636424},
 ]
 
-# Для тестовой отправки используем отдельный список из двух чатов
+# Для тестовой отправки используем отдельный список из двух чатов (замените на актуальные chat_id)
 TEST_SEND_CHATS = [
-    -1002596576819,  # Пример chat_id для Москва тест (замените на актуальное)
-    -1002584369534   # Пример chat_id для Тюмень тест (замените на актуальное)
+    -1002596576819,  # Москва тест
+    -1002584369534   # Тюмень тест
 ]
 
 # Список ID пользователей, которым разрешено использовать бота
@@ -72,7 +72,7 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
             time.sleep(delay)
     return None
 
-# Функция для отправки мультимедийного сообщения.
+# Функция для отправки мультимедийного сообщения (фото, видео, аудио, документ)
 def forward_multimedia(update: Update, chat_id):
     caption = update.message.caption if update.message.caption else ""
     if update.message.photo:
@@ -88,7 +88,7 @@ def forward_multimedia(update: Update, chat_id):
         file_id = update.message.document.file_id
         return bot.send_document(chat_id=chat_id, document=file_id, caption=caption, parse_mode="HTML")
     else:
-        # Если никаких медиа, отправляем текст
+        # Если никаких медиа, отправляем простой текст
         return send_message_with_retry(chat_id, update.message.text)
 
 # Инициализация бота и диспетчера
@@ -118,7 +118,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
     text = update.message.text.strip()
-    # Независимая проверка кнопки "Назад"
+    # Если пользователь нажал "Назад" — сразу переходим в главное меню
     if text == "Назад":
         logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
         menu(update, context)
@@ -138,14 +138,14 @@ def handle_main_menu(update: Update, context: CallbackContext):
             except Exception as e:
                 logging.error(f"Ошибка при обработке информации для города {city['name']}: {e}")
                 info_lines.append(f"{city['name']} - информация недоступна")
-        # Добавляем кнопку "Назад"
+        # Добавляем кнопку "Назад" для возврата в главное меню
         back_markup = ReplyKeyboardMarkup([["Назад"]], one_time_keyboard=True, resize_keyboard=True)
         update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_markup)
     elif text == "Отправить сообщение во все чаты ФАБА":
         chat_ids = [city["chat_id"] for city in ALL_CITIES]
         context.user_data["selected_chats"] = chat_ids
         context.user_data["selected_option"] = "Все чаты ФАБА"
-        update.message.reply_text("Вы выбрали: Отправить сообщение во все чаты ФАБА. Теперь отправьте сообщение.")
+        update.message.reply_text("Вы выбрали: Отправить сообщение во все чаты ФАБА. Теперь отправьте сообщение.\nНажмите /menu для повторного выбора.")
     elif text == "Тестовая отправка":
         context.user_data["pending_test"] = True
         update.message.reply_text("Введите ваш текст для тестовой отправки (в тестовые чаты).")
@@ -168,16 +168,15 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
 
-    # Если тестовая отправка – обрабатываем отдельно
+    # Тестовая отправка: если установлен флаг pending_test, обрабатываем отдельно
     if context.user_data.get("pending_test"):
         msg_text = update.message.text
         context.user_data.pop("pending_test", None)
-        update.message.reply_text("Тестовое сообщение поставлено в очередь отправки!")
+        update.message.reply_text("Тестовое сообщение поставлено в очередь отправки!\nНажмите /menu для повторного выбора.")
         forwarded = {}
         for chat_id in TEST_SEND_CHATS:
             logging.info(f"Тестовая отправка: попытка отправить сообщение в чат {chat_id}: {msg_text}")
             sent_message = None
-            # Если сообщение содержит медиа, отправляем с помощью forward_multimedia, иначе текст
             if update.message.photo or update.message.video or update.message.audio or update.message.document:
                 sent_message = forward_multimedia(update, chat_id)
             else:
@@ -195,7 +194,7 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
 
-    # Обработка сообщений с медиа или текстом
+    # Проверяем наличие медиа: если есть медиа, используем forward_multimedia, иначе отправляем текст
     msg_text = update.message.text if update.message.text else ""
     forwarded = {}
     for chat_id in context.user_data["selected_chats"]:
@@ -325,11 +324,9 @@ def index():
     return "Bot is running", 200
 
 if __name__ == "__main__":
-    # Удаляем предыдущий вебхук и устанавливаем новый
     bot.delete_webhook(drop_pending_updates=True)
     bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     
-    # Задаём порт, который определён переменной окружения PORT
     port = int(os.environ.get("PORT", 5000))
     logging.info(f"Запуск Flask-сервера на порту {port}")
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
