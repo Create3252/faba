@@ -41,7 +41,7 @@ ALL_CITIES = [
     {"name": "Владивосток", "link": "https://t.me/+Dpb3ozk_4Dc5OTYy", "chat_id": -1002438533236},
     {"name": "Донецк", "link": "https://t.me/+nGkS5gfvvQxjNmRi", "chat_id": -1002328107804},
     {"name": "Хабаровск", "link": "https://t.me/+SrnvRbMo3bA5NzVi", "chat_id": -1002480768813},
-    {"name": "Челябинск", "link": "https://t.me/+ZKXj5rmcmMw0MzQy", "chat_id": -1002374636424},
+    {"name": "Челябинск", "link": None, "chat_id": -1002374636424},
 ]
 
 # Список ID пользователей, которым разрешено использовать бота
@@ -91,7 +91,7 @@ dispatcher.add_handler(CommandHandler("menu", menu))
 def handle_main_menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
-    # Если пользователь отправил "Назад", возвращаемся в главное меню независимо от состояния
+    # Если пользователь отправил "Назад", сразу возвращаемся в главное меню
     if update.message.text.strip() == "Назад":
         logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
         menu(update, context)
@@ -123,13 +123,12 @@ def handle_main_menu(update: Update, context: CallbackContext):
     context.user_data.pop("pending_main_menu", None)
 
 dispatcher.add_handler(MessageHandler(
-    Filters.text & ~Filters.command & 
+    Filters.text & ~Filters.command &
     Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Назад)$"),
     handle_main_menu))
 
 ### Отправка сообщения (без подтверждения)
 def forward_message(update: Update, context: CallbackContext):
-    # Проверяем, что update.message существует
     if not update.message:
         return
     if update.message.chat.type != "private":
