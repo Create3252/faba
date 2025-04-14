@@ -129,6 +129,9 @@ dispatcher.add_handler(MessageHandler(
 
 ### Отправка сообщения (без подтверждения)
 def forward_message(update: Update, context: CallbackContext):
+    # Проверяем, что update.message существует
+    if not update.message:
+        return
     if update.message.chat.type != "private":
         return
     if update.message.from_user.id not in ALLOWED_USER_IDS:
