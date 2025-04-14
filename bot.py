@@ -21,7 +21,7 @@ if not BOT_TOKEN:
 if not WEBHOOK_URL:
     raise ValueError("Не указан URL для вебхука (WEBHOOK_URL)")
 
-# База данных городов для рассылки во все чаты ФАБА и списка чатов
+# База данных городов для рассылки во все чаты ФАБА и для показа списка
 ALL_CITIES = [
     {"name": "Тюмень", "date": "31.05.2024", "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
     {"name": "Новосибирск", "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
@@ -44,7 +44,7 @@ ALL_CITIES = [
     {"name": "Челябинск", "link": "https://t.me/+ZKXj5rmcmMw0MzQy", "chat_id": -1002374636424},
 ]
 
-# Для тестовой отправки используем отдельный список из двух чатов (замените на актуальные chat_id)
+# Для тестовой отправки используем отдельный список из двух чатов (замените на актуальные)
 TEST_SEND_CHATS = [
     -1002596576819,  # Москва тест
     -1002584369534   # Тюмень тест
@@ -121,11 +121,12 @@ def handle_main_menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
     text = update.message.text.strip()
-    # Если пользователь отправил "Назад", немедленно переходим в главное меню
+    # Если пользователь ввёл "Назад", сразу возвращаемся в главное меню
     if text == "Назад":
         logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
         menu(update, context)
         return
+
     if "pending_main_menu" not in context.user_data:
         return
 
@@ -142,10 +143,12 @@ def handle_main_menu(update: Update, context: CallbackContext):
                 info_lines.append(f"{city['name']} - информация недоступна")
         # Добавляем кнопку "Назад" для возврата в главное меню
         back_markup = ReplyKeyboardMarkup([["Назад"]], one_time_keyboard=True, resize_keyboard=True)
-        update.message.reply_text("\n".join(info_lines),
-                                    parse_mode="HTML",
-                                    disable_web_page_preview=True,
-                                    reply_markup=back_markup)
+        update.message.reply_text(
+            "\n".join(info_lines),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=back_markup
+        )
     elif text == "Отправить сообщение во все чаты ФАБА":
         chat_ids = [city["chat_id"] for city in ALL_CITIES]
         context.user_data["selected_chats"] = chat_ids
@@ -173,7 +176,7 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
 
-    # Если тестовая отправка – обрабатываем отдельно
+    # Обработка тестовой отправки
     if context.user_data.get("pending_test"):
         msg_text = update.message.text
         context.user_data.pop("pending_test", None)
@@ -199,7 +202,6 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
 
-    # Если сообщение содержит медиа, используем forward_multimedia, иначе – текстовую отправку
     msg_text = update.message.text if update.message.text else ""
     forwarded = {}
     for chat_id in context.user_data["selected_chats"]:
