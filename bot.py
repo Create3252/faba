@@ -14,7 +14,7 @@ logging.basicConfig(
 
 # Получаем переменные окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Пример: "https://your-app.onrender.com"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Например, "https://your-app.onrender.com"
 
 if not BOT_TOKEN:
     raise ValueError("Не указан токен бота (BOT_TOKEN)")
@@ -71,6 +71,25 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
             attempt += 1
             time.sleep(delay)
     return None
+
+# Функция для отправки мультимедийного сообщения.
+def forward_multimedia(update: Update, chat_id):
+    caption = update.message.caption if update.message.caption else ""
+    if update.message.photo:
+        file_id = update.message.photo[-1].file_id
+        return bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption, parse_mode="HTML")
+    elif update.message.video:
+        file_id = update.message.video.file_id
+        return bot.send_video(chat_id=chat_id, video=file_id, caption=caption, parse_mode="HTML")
+    elif update.message.audio:
+        file_id = update.message.audio.file_id
+        return bot.send_audio(chat_id=chat_id, audio=file_id, caption=caption, parse_mode="HTML")
+    elif update.message.document:
+        file_id = update.message.document.file_id
+        return bot.send_document(chat_id=chat_id, document=file_id, caption=caption, parse_mode="HTML")
+    else:
+        # Если никаких медиа, отправляем текст
+        return send_message_with_retry(chat_id, update.message.text)
 
 # Инициализация бота и диспетчера
 req = Request(connect_timeout=20, read_timeout=20)
@@ -135,13 +154,12 @@ def handle_main_menu(update: Update, context: CallbackContext):
     context.user_data.pop("pending_main_menu", None)
 
 dispatcher.add_handler(MessageHandler(
-    Filters.text & ~Filters.command & 
+    Filters.text & ~Filters.command &
     Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Тестовая отправка|Назад)$"),
     handle_main_menu))
 
 ### Отправка сообщения (без подтверждения)
 def forward_message(update: Update, context: CallbackContext):
-    # Если это редактирование или другой тип обновления, проверяем, что update.message не None
     if not update.message:
         return
     if update.message.chat.type != "private":
@@ -149,47 +167,74 @@ def forward_message(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
-    
-    # Если флаг pending_test установлен, обрабатываем тестовую отправку
+
+    # Если тестовая отправка – обрабатываем отдельно
     if context.user_data.get("pending_test"):
         msg_text = update.message.text
-        # Сбрасываем флаг
         context.user_data.pop("pending_test", None)
         update.message.reply_text("Тестовое сообщение поставлено в очередь отправки!")
         forwarded = {}
         for chat_id in TEST_SEND_CHATS:
             logging.info(f"Тестовая отправка: попытка отправить сообщение в чат {chat_id}: {msg_text}")
-            sent_message = send_message_with_retry(chat_id, msg_text)
+            sent_message = None
+            # Если сообщение содержит медиа, отправляем с помощью forward_multimedia, иначе текст
+            if update.message.photo or update.message.video or update.message.audio or update.message.document:
+                sent_message = forward_multimedia(update, chat_id)
+            else:
+                sent_message = send_message_with_retry(chat_id, msg_text)
             if sent_message:
                 forwarded[chat_id] = sent_message.message_id
             else:
                 logging.error(f"Тестовая отправка: не удалось отправить сообщение в чат {chat_id} после повторных попыток.")
         if forwarded:
             forwarded_messages[update.message.message_id] = forwarded
-            update.message.reply_text("Тестовое сообщение отправлено.")
+            update.message.reply_text("Тестовое сообщение отправлено.\nНажмите /menu для повторного выбора.")
         return
 
     if "selected_chats" not in context.user_data:
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
-    msg_text = update.message.text
-    selected_option = context.user_data.get("selected_option", "неизвестно")
-    update.message.reply_text("Сообщение поставлено в очередь отправки!")
+
+    # Обработка сообщений с медиа или текстом
+    msg_text = update.message.text if update.message.text else ""
     forwarded = {}
     for chat_id in context.user_data["selected_chats"]:
         logging.info(f"Попытка отправить сообщение в чат {chat_id}: {msg_text}")
-        sent_message = send_message_with_retry(chat_id, msg_text)
+        sent_message = None
+        if update.message.photo or update.message.video or update.message.audio or update.message.document:
+            sent_message = forward_multimedia(update, chat_id)
+        else:
+            sent_message = send_message_with_retry(chat_id, msg_text)
         if sent_message:
             forwarded[chat_id] = sent_message.message_id
         else:
             logging.error(f"Не удалось отправить сообщение в чат {chat_id} после повторных попыток.")
     if forwarded:
         forwarded_messages[update.message.message_id] = forwarded
-        update.message.reply_text(f"Сообщение отправлено в: {selected_option}")
+        selected_option = context.user_data.get("selected_option", "неизвестно")
+        update.message.reply_text(f"Сообщение отправлено в: {selected_option}\nНажмите /menu для повторного выбора.")
     context.user_data.pop("selected_chats", None)
     context.user_data.pop("selected_option", None)
 
 dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, forward_message))
+
+### Функция для отправки мультимедийного сообщения
+def forward_multimedia(update: Update, chat_id):
+    caption = update.message.caption if update.message.caption else ""
+    if update.message.photo:
+        photo_id = update.message.photo[-1].file_id
+        return bot.send_photo(chat_id=chat_id, photo=photo_id, caption=caption, parse_mode="HTML")
+    elif update.message.video:
+        video_id = update.message.video.file_id
+        return bot.send_video(chat_id=chat_id, video=video_id, caption=caption, parse_mode="HTML")
+    elif update.message.audio:
+        audio_id = update.message.audio.file_id
+        return bot.send_audio(chat_id=chat_id, audio=audio_id, caption=caption, parse_mode="HTML")
+    elif update.message.document:
+        doc_id = update.message.document.file_id
+        return bot.send_document(chat_id=chat_id, document=doc_id, caption=caption, parse_mode="HTML")
+    else:
+        return send_message_with_retry(chat_id, update.message.text)
 
 ### Редактирование пересланных сообщений
 def edit_message(update: Update, context: CallbackContext):
@@ -217,9 +262,9 @@ def edit_message(update: Update, context: CallbackContext):
             logging.error(f"Ошибка при редактировании сообщения в чате {chat_id}: {e}")
             success = False
     if success:
-        update.message.reply_text("Сообщения отредактированы.")
+        update.message.reply_text("Сообщения отредактированы.\nНажмите /menu для повторного выбора.")
     else:
-        update.message.reply_text("Произошла ошибка при редактировании некоторых сообщений.")
+        update.message.reply_text("Произошла ошибка при редактировании некоторых сообщений.\nНажмите /menu для повторного выбора.")
 
 dispatcher.add_handler(CommandHandler("edit", edit_message, pass_args=True))
 
@@ -245,9 +290,9 @@ def delete_message(update: Update, context: CallbackContext):
             logging.error(f"Ошибка при удалении сообщения в чате {chat_id}: {e}")
             success = False
     if success:
-        update.message.reply_text("Сообщения удалены.")
+        update.message.reply_text("Сообщения удалены.\nНажмите /menu для повторного выбора.")
     else:
-        update.message.reply_text("Произошла ошибка при удалении некоторых сообщений.")
+        update.message.reply_text("Произошла ошибка при удалении некоторых сообщений.\nНажмите /menu для повторного выбора.")
     forwarded_messages.pop(original_id, None)
 
 dispatcher.add_handler(CommandHandler("delete", delete_message))
