@@ -76,19 +76,22 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
 def forward_multimedia(update: Update, chat_id):
     caption = update.message.caption if update.message.caption else ""
     if update.message.photo:
-        file_id = update.message.photo[-1].file_id
-        return bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption, parse_mode="HTML")
+        photo_id = update.message.photo[-1].file_id
+        logging.info(f"Отправляю фото с file_id: {photo_id}")
+        return bot.send_photo(chat_id=chat_id, photo=photo_id, caption=caption, parse_mode="HTML")
     elif update.message.video:
-        file_id = update.message.video.file_id
-        return bot.send_video(chat_id=chat_id, video=file_id, caption=caption, parse_mode="HTML")
+        video_id = update.message.video.file_id
+        logging.info(f"Отправляю видео с file_id: {video_id}")
+        return bot.send_video(chat_id=chat_id, video=video_id, caption=caption, parse_mode="HTML")
     elif update.message.audio:
-        file_id = update.message.audio.file_id
-        return bot.send_audio(chat_id=chat_id, audio=file_id, caption=caption, parse_mode="HTML")
+        audio_id = update.message.audio.file_id
+        logging.info(f"Отправляю аудио с file_id: {audio_id}")
+        return bot.send_audio(chat_id=chat_id, audio=audio_id, caption=caption, parse_mode="HTML")
     elif update.message.document:
-        file_id = update.message.document.file_id
-        return bot.send_document(chat_id=chat_id, document=file_id, caption=caption, parse_mode="HTML")
+        doc_id = update.message.document.file_id
+        logging.info(f"Отправляю документ с file_id: {doc_id}")
+        return bot.send_document(chat_id=chat_id, document=doc_id, caption=caption, parse_mode="HTML")
     else:
-        # Если никаких медиа, отправляем простой текст
         return send_message_with_retry(chat_id, update.message.text)
 
 # Инициализация бота и диспетчера
@@ -118,12 +121,11 @@ def handle_main_menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return
     text = update.message.text.strip()
-    # Если пользователь нажал "Назад" — сразу переходим в главное меню
+    # Если пользователь отправил "Назад", немедленно переходим в главное меню
     if text == "Назад":
         logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
         menu(update, context)
         return
-
     if "pending_main_menu" not in context.user_data:
         return
 
@@ -140,7 +142,10 @@ def handle_main_menu(update: Update, context: CallbackContext):
                 info_lines.append(f"{city['name']} - информация недоступна")
         # Добавляем кнопку "Назад" для возврата в главное меню
         back_markup = ReplyKeyboardMarkup([["Назад"]], one_time_keyboard=True, resize_keyboard=True)
-        update.message.reply_text("\n".join(info_lines), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_markup)
+        update.message.reply_text("\n".join(info_lines),
+                                    parse_mode="HTML",
+                                    disable_web_page_preview=True,
+                                    reply_markup=back_markup)
     elif text == "Отправить сообщение во все чаты ФАБА":
         chat_ids = [city["chat_id"] for city in ALL_CITIES]
         context.user_data["selected_chats"] = chat_ids
@@ -154,7 +159,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
     context.user_data.pop("pending_main_menu", None)
 
 dispatcher.add_handler(MessageHandler(
-    Filters.text & ~Filters.command &
+    Filters.text & ~Filters.command & 
     Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Тестовая отправка|Назад)$"),
     handle_main_menu))
 
@@ -168,7 +173,7 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
 
-    # Тестовая отправка: если установлен флаг pending_test, обрабатываем отдельно
+    # Если тестовая отправка – обрабатываем отдельно
     if context.user_data.get("pending_test"):
         msg_text = update.message.text
         context.user_data.pop("pending_test", None)
@@ -194,7 +199,7 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
 
-    # Проверяем наличие медиа: если есть медиа, используем forward_multimedia, иначе отправляем текст
+    # Если сообщение содержит медиа, используем forward_multimedia, иначе – текстовую отправку
     msg_text = update.message.text if update.message.text else ""
     forwarded = {}
     for chat_id in context.user_data["selected_chats"]:
@@ -222,15 +227,19 @@ def forward_multimedia(update: Update, chat_id):
     caption = update.message.caption if update.message.caption else ""
     if update.message.photo:
         photo_id = update.message.photo[-1].file_id
+        logging.info(f"Отправляю фото с file_id: {photo_id}")
         return bot.send_photo(chat_id=chat_id, photo=photo_id, caption=caption, parse_mode="HTML")
     elif update.message.video:
         video_id = update.message.video.file_id
+        logging.info(f"Отправляю видео с file_id: {video_id}")
         return bot.send_video(chat_id=chat_id, video=video_id, caption=caption, parse_mode="HTML")
     elif update.message.audio:
         audio_id = update.message.audio.file_id
+        logging.info(f"Отправляю аудио с file_id: {audio_id}")
         return bot.send_audio(chat_id=chat_id, audio=audio_id, caption=caption, parse_mode="HTML")
     elif update.message.document:
         doc_id = update.message.document.file_id
+        logging.info(f"Отправляю документ с file_id: {doc_id}")
         return bot.send_document(chat_id=chat_id, document=doc_id, caption=caption, parse_mode="HTML")
     else:
         return send_message_with_retry(chat_id, update.message.text)
