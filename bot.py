@@ -22,31 +22,52 @@ if not WEBHOOK_URL:
 
 # --- ДАННЫЕ О ГОРОДАХ, ТЕСТОВЫХ ЧАТАХ И РАЗРЕШЁННЫХ ПОЛЬЗОВАТЕЛЯХ ---
 ALL_CITIES = [
-    {"name": "Тюмень", "date": "31.05.2024", "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
-    {"name": "Новосибирск", "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
-    # ... (остальные города)
+    {"name": "Тюмень",        "date": "31.05.2024", "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
+    {"name": "Новосибирск",   "link": "https://t.me/+wx20YVCwxmo3YmQy",  "chat_id": -1002489311984},
+    {"name": "Сахалин",       "link": "https://t.me/+FzQ_jEYX8AtkMzNi",  "chat_id": -1002265902434},
+    {"name": "Красноярск",    "link": "https://t.me/+lMTDVPF0syRiYzdi",  "chat_id": -1002311750873},
+    {"name": "Санкт-Петербург","link": "https://t.me/+EWj9jKhAvV82NWIy", "chat_id": -1002152780476},
+    {"name": "Москва",        "link": "https://t.me/+qokFNNnfhQdiYjQy",  "chat_id": -1002182445604},
+    {"name": "Екатеринбург",  "link": "https://t.me/+J2ESyZJyOAk2YzYy",  "chat_id": -1002392430562},
+    {"name": "Иркутск",       "link": "https://t.me/+TAoCnfoePUJmNzhi",  "chat_id": -1002255012184},
+    {"name": "Оренбург",      "link": "https://t.me/+-Y_1N0HnePUxZjZi",  "chat_id": -1002316600732},
+    {"name": "Крым",          "link": "https://t.me/+uC5IEnQWsmFhM2Ni",  "chat_id": -4588099495},
+    {"name": "Чита",          "link": "https://t.me/+yMeI0CjltLphZWYy",  "chat_id": -4587730161},
+    {"name": "Волгоград",     "link": "https://t.me/+ODxw0mfq73M4NGFi",  "chat_id": -1002562049204},
+    {"name": "Краснодар",     "link": "https://t.me/+a9_1fWyGvAc1NzZi",  "chat_id": -1002297851122},
+    {"name": "Пермь",         "link": "https://t.me/+lgM27u0cnp8wNjAy",  "chat_id": -4587345787},
+    {"name": "Самара",        "date": "15.04.2025", "link": "https://t.me/+SLCllcYKCUFlNjk6", "chat_id": -1002589409715},
+    {"name": "Владивосток",   "link": "https://t.me/+Dpb3ozk_4Dc5OTYy",  "chat_id": -1002438533236},
+    {"name": "Донецк",        "link": "https://t.me/+nGkS5gfvvQxjNmRi",  "chat_id": -1002328107804},
+    {"name": "Хабаровск",     "link": "https://t.me/+SrnvRbMo3bA5NzVi",  "chat_id": -1002480768813},
+    {"name": "Челябинск",     "link": "https://t.me/+ZKXj5rmcmMw0MzQy",  "chat_id": -1002374636424},
 ]
+
+# В эти чаты будет тестовая отправка
 TEST_SEND_CHATS = [
-    -1002596576819,  # Москва тест
-    -1002584369534   # Тюмень тест
+    -1002596576819,  # Москва тест (пример)
+    -1002584369534   # Тюмень тест (пример)
 ]
+
+# Разрешённые пользователи
 ALLOWED_USER_IDS = [296920330, 320303183, 533773, 327650534, 136737738, 1607945564]
 
-# --- ПЕРЕМЕННЫЕ ДЛЯ ХРАНЕНИЯ СОСТОЯНИЯ ---
+# Глобальный словарь для сохранения Id отправленных сообщений
 forwarded_messages = {}
 
-# --- СОЗДАЁМ БОТА И ДИСПЕТЧЕР ---
+# Создаём бота
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+
 def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
     attempt = 1
     while attempt <= max_attempts:
         try:
             sent_message = bot.send_message(chat_id=chat_id, text=msg_text, parse_mode="HTML")
-            logging.info(f"Сообщение отправлено в чат {chat_id}, message_id: {sent_message.message_id}")
+            logging.info(f"Сообщение отправлено в чат {chat_id}, message_id={sent_message.message_id}")
             return sent_message
         except Exception as e:
             logging.error(f"Попытка {attempt}: ошибка при отправке текста в {chat_id}: {e}")
@@ -96,7 +117,7 @@ def forward_multimedia(update: Update, chat_id):
         logging.info("Медиа не обнаружено, отсылаем как текст.")
         return send_message_with_retry(chat_id, update.message.text)
 
-# --- ГЛАВНОЕ МЕНЮ (/menu) ---
+# --- /menu ---
 def menu(update: Update, context: CallbackContext):
     """Показываем главное меню с кнопками"""
     if update.message.from_user.id not in ALLOWED_USER_IDS:
@@ -112,16 +133,16 @@ def menu(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(CommandHandler("menu", menu))
 
-# --- ОБРАБОТКА ТЕКСТА МЕНЮ (group=0) ---
 def handle_main_menu(update: Update, context: CallbackContext) -> bool:
-    """Обрабатываем команды из меню: Список чатов, Отправить, Тестовая отправка, Назад.
-       Возвращаем True, если сообщение обработано, иначе False."""
+    """
+    Обрабатываем пункты меню. Возвращаем True, если сообщение "съедено",
+    иначе False (тогда передаем в следующий хендлер).
+    """
     if update.message.from_user.id not in ALLOWED_USER_IDS:
-        return False  # не обрабатываем
+        return False
     text = update.message.text.strip()
     logging.info(f"handle_main_menu: text='{text}'")
 
-    # Если нет флага menu, ничего не делаем
     if "pending_main_menu" not in context.user_data:
         return False
 
@@ -142,12 +163,10 @@ def handle_main_menu(update: Update, context: CallbackContext) -> bool:
                 logging.error(f"Ошибка при обработке города {city['name']}: {e}")
                 info_lines.append(f"{city['name']} - информация недоступна")
         back_markup = ReplyKeyboardMarkup([["Назад"]], one_time_keyboard=True, resize_keyboard=True)
-        update.message.reply_text(
-            "\n".join(info_lines),
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            reply_markup=back_markup
-        )
+        update.message.reply_text("\n".join(info_lines),
+                                  parse_mode="HTML",
+                                  disable_web_page_preview=True,
+                                  reply_markup=back_markup)
         context.user_data.pop("pending_main_menu", None)
         return True
 
@@ -155,7 +174,9 @@ def handle_main_menu(update: Update, context: CallbackContext) -> bool:
         chat_ids = [city["chat_id"] for city in ALL_CITIES]
         context.user_data["selected_chats"] = chat_ids
         context.user_data["selected_option"] = "Все чаты ФАБА"
-        update.message.reply_text("Вы выбрали: Отправить сообщение во все чаты ФАБА. Теперь отправьте сообщение.\nНажмите /menu для повторного выбора.")
+        update.message.reply_text(
+            "Вы выбрали: Отправить сообщение во все чаты ФАБА. Теперь отправьте сообщение.\nНажмите /menu для повторного выбора."
+        )
         context.user_data.pop("pending_main_menu", None)
         return True
 
@@ -170,17 +191,21 @@ def handle_main_menu(update: Update, context: CallbackContext) -> bool:
         context.user_data.pop("pending_main_menu", None)
         return True
 
-# Регистрируем handle_main_menu с group=0, чтобы он обрабатывал «меню» первее
-dispatcher.add_handler(MessageHandler(
-    Filters.chat_type.private & ~Filters.command,
-    handle_main_menu
-), group=0)
+# Хендлер меню – обрабатывает только приватные сообщения без команд, group=0
+dispatcher.add_handler(
+    MessageHandler(Filters.chat_type.private & ~Filters.command, handle_main_menu),
+    group=0
+)
 
-# --- ОБРАБОТКА ОСТАЛЬНЫХ СООБЩЕНИЙ (group=1) ---
 def forward_message(update: Update, context: CallbackContext):
+    """
+    Если сообщение не является кнопкой меню, то это либо тестовая отправка,
+    либо отправка во все чаты ФАБА.
+    """
     logging.info(f"forward_message CALLED. pending_test={context.user_data.get('pending_test')}, "
                  f"photo={bool(update.message.photo)}, text='{update.message.text}'")
 
+    # 1. Проверка базовых условий
     if not update.message:
         return
     if update.message.chat.type != "private":
@@ -189,11 +214,13 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("У вас нет прав для использования этого бота.")
         return
 
-    # Тестовая отправка
+    # 2. Тестовая отправка
     if context.user_data.get("pending_test"):
         msg_text = update.message.text if update.message.text else ""
         context.user_data.pop("pending_test", None)
-        update.message.reply_text("Тестовое сообщение поставлено в очередь отправки!\nНажмите /menu для повторного выбора.")
+        update.message.reply_text(
+            "Тестовое сообщение поставлено в очередь отправки!\nНажмите /menu для повторного выбора."
+        )
 
         forwarded = {}
         for chat_id in TEST_SEND_CHATS:
@@ -216,7 +243,7 @@ def forward_message(update: Update, context: CallbackContext):
             update.message.reply_text("Тестовое сообщение отправлено.\nНажмите /menu для повторного выбора.")
         return
 
-    # Обычная рассылка (если выбраны чаты)
+    # 3. Обычная рассылка (если выбраны чаты)
     if "selected_chats" not in context.user_data:
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
@@ -232,6 +259,7 @@ def forward_message(update: Update, context: CallbackContext):
         else:
             logging.info(f"Отправляем как текст. text='{msg_text}' chat_id={chat_id}")
             sent_message = send_message_with_retry(chat_id, msg_text)
+
         if sent_message:
             forwarded[chat_id] = sent_message.message_id
         else:
@@ -240,24 +268,26 @@ def forward_message(update: Update, context: CallbackContext):
     if forwarded:
         forwarded_messages[update.message.message_id] = forwarded
         selected_option = context.user_data.get("selected_option", "неизвестно")
-        update.message.reply_text(f"Сообщение отправлено в: {selected_option}\nНажмите /menu для повторного выбора.")
+        update.message.reply_text(
+            f"Сообщение отправлено в: {selected_option}\nНажмите /menu для повторного выбора."
+        )
 
     context.user_data.pop("selected_chats", None)
     context.user_data.pop("selected_option", None)
 
-# Регистрируем forward_message с group=1, чтобы он обрабатывал все остальные сообщения
-dispatcher.add_handler(MessageHandler(
-    Filters.chat_type.private & ~Filters.command,
-    forward_message
-), group=1)
+# Хендлер пересылки – group=1, чтобы он срабатывал после handle_main_menu
+dispatcher.add_handler(
+    MessageHandler(Filters.chat_type.private & ~Filters.command, forward_message),
+    group=1
+)
 
-# --- ОСТАЛЬШИЕ КОМАНДЫ (/edit, /delete, /getid) ---
+# --- /edit, /delete, /getid ---
 def edit_message(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для редактирования сообщений.")
         return
     if not update.message.reply_to_message:
-        update.message.reply_text("Используйте команду /edit, ответив на исходное сообщение, которое хотите отредактировать.")
+        update.message.reply_text("Используйте команду /edit, ответив на сообщение, которое хотите отредактировать.")
         return
     original_id = update.message.reply_to_message.message_id
     new_text = ' '.join(context.args)
