@@ -2,10 +2,9 @@ import os
 import time
 import logging
 from flask import Flask, request
-from telegram import Update, Bot, ReplyKeyboardMarkup
-from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
+from telegram import Update, Bot, ReplyKeyboardMarkup, MessageEntity
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext, DispatcherHandlerStop
 from telegram.utils.request import Request
-from telegram.ext import DispatcherHandlerStop  # <-- ДОБАВЛЕНО
 
 # --- НАСТРОЙКА ЛОГОВ ---
 logging.basicConfig(
@@ -48,6 +47,8 @@ TEST_SEND_CHATS = [
     -1002584369534   # Пример для Тюмень тест
 ]
 ALLOWED_USER_IDS = [296920330, 320303183, 533773, 327650534, 136737738, 1607945564]
+
+# Хранение ID отправленных сообщений (original_message_id -> {chat_id: forwarded_message_id})
 forwarded_messages = {}
 
 # Создаём бота
@@ -55,6 +56,54 @@ req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
+# ---------- ФУНКЦИЯ РАЗБОРА ENTITIES В HTML ----------
+def rebuild_caption_with_entities(update: Update) -> str:
+    """
+    Собирает caption заново, превращая caption_entities в HTML-теги.
+    Спойлеры отображаем как <u> ... </u>, т.к. нативного <spoiler> нет.
+    """
+    if not update.message.caption:
+        return ""
+
+    text = update.message.caption
+    entities = update.message.caption_entities or []
+
+    # Превращаем text в список, чтобы можно было вставлять теги.
+    chars = list(text)
+
+    # Обходим entities с конца, чтобы не сбить индексы после вставок.
+    # entity.offset, entity.length указывает откуда и сколько символов.
+    for ent in sorted(entities, key=lambda e: e.offset + e.length, reverse=True):
+        start = ent.offset
+        end = ent.offset + ent.length
+
+        if ent.type == "bold":
+            chars.insert(end, "</b>")
+            chars.insert(start, "<b>")
+        elif ent.type == "italic":
+            chars.insert(end, "</i>")
+            chars.insert(start, "<i>")
+        elif ent.type == "underline":
+            chars.insert(end, "</u>")
+            chars.insert(start, "<u>")
+        elif ent.type == "strikethrough":
+            chars.insert(end, "</s>")
+            chars.insert(start, "<s>")
+        elif ent.type == "code":
+            chars.insert(end, "</code>")
+            chars.insert(start, "<code>")
+        elif ent.type == "spoiler":
+            # Telegram Bot API не поддерживает нативный <spoiler>,
+            # мы используем <u> как пример.
+            chars.insert(end, "</u>")
+            chars.insert(start, "<u>")
+
+        # Можно добавить elif для "text_link", "text_mention" и т.д.
+
+    result_html = "".join(chars)
+    return result_html
+
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ОТПРАВКИ ---
 def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
     attempt = 1
     while attempt <= max_attempts:
@@ -71,46 +120,54 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
     return None
 
 def forward_multimedia(update: Update, chat_id):
-    caption = update.message.caption if update.message.caption else ""
+    """
+    Отправляет фото/видео/аудио/документ с учётом caption_entities.
+    """
+    new_caption = rebuild_caption_with_entities(update)  # <-- восстанавливаем форматирование
     logging.info("Вызов forward_multimedia, проверяем тип медиа...")
 
+    # Если это фото
     if update.message.photo:
         photo_id = update.message.photo[-1].file_id
-        logging.info(f"Отправляю фото в {chat_id}, file_id={photo_id}, caption='{caption}'")
+        logging.info(f"Отправляю фото в {chat_id}, file_id={photo_id}, caption='{new_caption}'")
         try:
-            return bot.send_photo(chat_id=chat_id, photo=photo_id, caption=caption, parse_mode="HTML")
+            return bot.send_photo(chat_id=chat_id, photo=photo_id, caption=new_caption, parse_mode="HTML")
         except Exception as e:
             logging.error(f"Ошибка при отправке фото: {e}")
             return None
+
     elif update.message.video:
         video_id = update.message.video.file_id
-        logging.info(f"Отправляю видео в {chat_id}, file_id={video_id}, caption='{caption}'")
+        logging.info(f"Отправляю видео в {chat_id}, file_id={video_id}, caption='{new_caption}'")
         try:
-            return bot.send_video(chat_id=chat_id, video=video_id, caption=caption, parse_mode="HTML")
+            return bot.send_video(chat_id=chat_id, video=video_id, caption=new_caption, parse_mode="HTML")
         except Exception as e:
             logging.error(f"Ошибка при отправке видео: {e}")
             return None
+
     elif update.message.audio:
         audio_id = update.message.audio.file_id
-        logging.info(f"Отправляю аудио в {chat_id}, file_id={audio_id}, caption='{caption}'")
+        logging.info(f"Отправляю аудио в {chat_id}, file_id={audio_id}, caption='{new_caption}'")
         try:
-            return bot.send_audio(chat_id=chat_id, audio=audio_id, caption=caption, parse_mode="HTML")
+            return bot.send_audio(chat_id=chat_id, audio=audio_id, caption=new_caption, parse_mode="HTML")
         except Exception as e:
             logging.error(f"Ошибка при отправке аудио: {e}")
             return None
+
     elif update.message.document:
         doc_id = update.message.document.file_id
-        logging.info(f"Отправляю документ в {chat_id}, file_id={doc_id}, caption='{caption}'")
+        logging.info(f"Отправляю документ в {chat_id}, file_id={doc_id}, caption='{new_caption}'")
         try:
-            return bot.send_document(chat_id=chat_id, document=doc_id, caption=caption, parse_mode="HTML")
+            return bot.send_document(chat_id=chat_id, document=doc_id, caption=new_caption, parse_mode="HTML")
         except Exception as e:
             logging.error(f"Ошибка при отправке документа: {e}")
             return None
-    else:
-        logging.info("Медиа не обнаружено, отсылаем как текст.")
-        return send_message_with_retry(chat_id, update.message.text)
 
-# --- /menu ---
+    # Если ни одно из вышеперечисленных
+    logging.info("Медиа не обнаружено, отсылаем как текст.")
+    return send_message_with_retry(chat_id, update.message.text)
+
+# -------------------- /menu ----------------------
 def menu(update: Update, context: CallbackContext):
     """Показываем главное меню с кнопками"""
     if update.message.from_user.id not in ALLOWED_USER_IDS:
@@ -126,10 +183,8 @@ def menu(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(CommandHandler("menu", menu))
 
-# --- Обработка пунктов меню (group=0) ---
+# Обработка пунктов меню (group=0)
 def handle_main_menu(update: Update, context: CallbackContext) -> bool:
-    from telegram.ext import DispatcherHandlerStop
-
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         return False
     text = update.message.text.strip()
@@ -138,15 +193,12 @@ def handle_main_menu(update: Update, context: CallbackContext) -> bool:
     if "pending_main_menu" not in context.user_data:
         return False
 
-    # Если нажали Назад - возвращаемся в меню
     if text == "Назад":
         logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
         menu(update, context)
         context.user_data.pop("pending_main_menu", None)
-        # Прерываем цепочку хендлеров
         raise DispatcherHandlerStop
 
-    # Показываем список чатов
     if text == "Список чатов ФАБА":
         info_lines = ["Список чатов ФАБА:"]
         for city in ALL_CITIES:
@@ -158,16 +210,16 @@ def handle_main_menu(update: Update, context: CallbackContext) -> bool:
             except Exception as e:
                 logging.error(f"Ошибка при обработке города {city['name']}: {e}")
                 info_lines.append(f"{city['name']} - информация недоступна")
-
         back_markup = ReplyKeyboardMarkup([["Назад"]], one_time_keyboard=True, resize_keyboard=True)
-        update.message.reply_text("\n".join(info_lines),
-                                  parse_mode="HTML",
-                                  disable_web_page_preview=True,
-                                  reply_markup=back_markup)
+        update.message.reply_text(
+            "\n".join(info_lines),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=back_markup
+        )
         context.user_data.pop("pending_main_menu", None)
         raise DispatcherHandlerStop
 
-    # Отправить сообщение во все чаты ФАБА
     if text == "Отправить сообщение во все чаты ФАБА":
         chat_ids = [city["chat_id"] for city in ALL_CITIES]
         context.user_data["selected_chats"] = chat_ids
@@ -176,15 +228,12 @@ def handle_main_menu(update: Update, context: CallbackContext) -> bool:
             "Вы выбрали: Отправить сообщение во все чаты ФАБА. Теперь отправьте сообщение.\nНажмите /menu для повторного выбора."
         )
         context.user_data.pop("pending_main_menu", None)
-        # Останавливаем, чтобы это же сообщение не пошло в forward_message
         raise DispatcherHandlerStop
 
-    # Тестовая отправка
     if text == "Тестовая отправка":
         context.user_data["pending_test"] = True
         update.message.reply_text("Введите ваш текст (или фото, видео) для тестовой отправки.")
         context.user_data.pop("pending_main_menu", None)
-        # Останавливаем цепочку
         raise DispatcherHandlerStop
 
     # Если неизвестный пункт
@@ -197,7 +246,7 @@ dispatcher.add_handler(
     group=0
 )
 
-# --- Пересылка (group=1) ---
+# Пересылка (group=1)
 def forward_message(update: Update, context: CallbackContext):
     logging.info(f"forward_message CALLED. pending_test={context.user_data.get('pending_test')}, "
                  f"photo={bool(update.message.photo)}, text='{update.message.text}'")
@@ -212,9 +261,10 @@ def forward_message(update: Update, context: CallbackContext):
 
     # --- Тестовая отправка ---
     if context.user_data.get("pending_test"):
+        # Следующее сообщение — то, что пересылаем
         msg_text = update.message.text if update.message.text else ""
         context.user_data.pop("pending_test", None)
-        update.message.reply_text("Тестовое сообщение поставлено в очередь отправки!\nНажмите /menu для повторного выбора.")
+        update.message.reply_text("Тестовое сообщение поставлено в очередь отправки!")
 
         forwarded = {}
         for chat_id in TEST_SEND_CHATS:
@@ -234,6 +284,7 @@ def forward_message(update: Update, context: CallbackContext):
                 logging.error(f"Тестовая отправка: не удалось отправить сообщение в чат {chat_id}.")
 
         if forwarded:
+            # Связываем original_message_id и отправленные message_id
             forwarded_messages[update.message.message_id] = forwarded
             update.message.reply_text("Тестовое сообщение отправлено.\nНажмите /menu для повторного выбора.")
         return
@@ -267,6 +318,7 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text(
             f"Сообщение отправлено в: {selected_option}\nНажмите /menu для повторного выбора."
         )
+
     context.user_data.pop("selected_chats", None)
     context.user_data.pop("selected_option", None)
 
