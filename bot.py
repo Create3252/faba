@@ -46,8 +46,8 @@ ALL_CITIES = [
 
 # Для тестовой отправки используем отдельный список из двух чатов (замените на актуальные)
 TEST_SEND_CHATS = [
-    -1002596576819,  # Москва тест
-    -1002584369534   # Тюмень тест
+    -1002596576819,  # Пример chat_id для Москва тест
+    -1002584369534   # Пример chat_id для Тюмень тест
 ]
 
 # Список ID пользователей, которым разрешено использовать бота
@@ -73,8 +73,8 @@ def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
 
 def forward_multimedia(update: Update, chat_id):
     caption = update.message.caption if update.message.caption else ""
-    # Логируем общий случай
     logging.info("Вызов forward_multimedia, проверяем тип медиа...")
+
     if update.message.photo:
         photo_id = update.message.photo[-1].file_id
         logging.info(f"Отправляю фото с file_id: {photo_id}, caption='{caption}'")
@@ -137,6 +137,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
         logging.info("Пользователь выбрал 'Назад', возвращаемся в главное меню.")
         menu(update, context)
         return
+
     if "pending_main_menu" not in context.user_data:
         return
 
@@ -176,6 +177,10 @@ dispatcher.add_handler(MessageHandler(
     handle_main_menu))
 
 def forward_message(update: Update, context: CallbackContext):
+    # Логируем начало функции, чтобы видеть текущее состояние
+    logging.info(f"forward_message CALLED. pending_test={context.user_data.get('pending_test')}, "
+                 f"has_photo={bool(update.message.photo)}, text='{update.message.text}'")
+
     if not update.message:
         return
     if update.message.chat.type != "private":
@@ -184,6 +189,7 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("У вас нет прав для отправки сообщений.")
         return
 
+    # Режим тестовой отправки
     if context.user_data.get("pending_test"):
         msg_text = update.message.text
         context.user_data.pop("pending_test", None)
@@ -207,6 +213,7 @@ def forward_message(update: Update, context: CallbackContext):
             update.message.reply_text("Тестовое сообщение отправлено.\nНажмите /menu для повторного выбора.")
         return
 
+    # Обычная рассылка во все чаты ФАБА
     if "selected_chats" not in context.user_data:
         update.message.reply_text("Сначала выберите действие, используя команду /menu.")
         return
@@ -230,6 +237,7 @@ def forward_message(update: Update, context: CallbackContext):
         forwarded_messages[update.message.message_id] = forwarded
         selected_option = context.user_data.get("selected_option", "неизвестно")
         update.message.reply_text(f"Сообщение отправлено в: {selected_option}\nНажмите /menu для повторного выбора.")
+
     context.user_data.pop("selected_chats", None)
     context.user_data.pop("selected_option", None)
 
