@@ -236,7 +236,33 @@ def forward_message(update: Update, context: CallbackContext):
     if not msg or msg.chat.type != "private":
         return
 
-    # определяем, куда шлем
+    # === Тестовая отправка любых сообщений ===
+    if context.user_data.get("pending_test"):
+        # снимаем флаг, чтобы не зациклиться
+        context.user_data.pop("pending_test", None)
+
+        failures = []
+        for cid in TEST_SEND_CHATS:
+            try:
+                bot.copy_message(
+                    chat_id=cid,
+                    from_chat_id=msg.chat.id,
+                    message_id=msg.message_id
+                )
+                logging.info(f"Тестовая отправка: скопировано сообщение {msg.message_id} → чат {cid}")
+            except Exception as e:
+                logging.error(f"Тестовая отправка: не удалось скопировать в {cid}: {e}")
+                failures.append(cid)
+
+        # Отвечаем пользователю
+        if failures:
+            failed_str = ", ".join(str(x) for x in failures)
+            msg.reply_text(f"Часть тестовых сообщений не отправлены в: {failed_str}\nНажмите /menu для повторного выбора.")
+        else:
+            msg.reply_text("Тестовое сообщение успешно отправлено во все тестовые чаты.\nНажмите /menu для повторного выбора.")
+        return
+
+    # === Отправка в выбранные чаты ФАБА ===
     chat_ids = context.user_data.get("selected_chats", [])
     if not chat_ids:
         msg.reply_text("Сначала выберите действие, используя команду /menu.")
@@ -255,14 +281,13 @@ def forward_message(update: Update, context: CallbackContext):
             logging.error(f"Не удалось скопировать сообщение в чат {cid}: {e}")
             failures.append(cid)
 
-    # Ответ пользователю
     if failures:
         failed_str = ", ".join(str(x) for x in failures)
-        msg.reply_text(f"Часть сообщений отправлена, но не получилось в: {failed_str}")
+        msg.reply_text(f"Часть сообщений отправлена, но не получилось в: {failed_str}\nНажмите /menu для нового выбора.")
     else:
-        msg.reply_text("Сообщение успешно доставлено во все чаты. Нажмите /menu для нового выбора.")
+        msg.reply_text("Сообщение успешно доставлено во все чаты.\nНажмите /menu для нового выбора.")
 
-    # вычисление чистки состояния
+    # чистим состояние
     context.user_data.pop("selected_chats", None)
     context.user_data.pop("selected_option", None)
 
