@@ -232,80 +232,37 @@ dispatcher.add_handler(
 
 # --- ПЕРЕСЫЛКА СООБЩЕНИЙ (group=1) ---
 def forward_message(update: Update, context: CallbackContext):
-    logging.info(f"forward_message CALLED. pending_test={context.user_data.get('pending_test')}, "
-                 f"photo={bool(update.message.photo)}, text='{update.message.text}'")
-    if not update.message:
-        return
-    if update.message.chat.type != "private":
-        return
-    if update.message.from_user.id not in ALLOWED_USER_IDS:
-        update.message.reply_text("У вас нет прав для отправки сообщений.")
+    msg = update.message
+    if not msg or msg.chat.type != "private":
         return
 
-    # Тестовая отправка
-    if context.user_data.get("pending_test"):
-        msg_text = update.message.text if update.message.text else ""
-        context.user_data.pop("pending_test", None)
-        # Отправка в тестовые чаты
-        forwarded = {}
-        failed = []
-        for chat_id in TEST_SEND_CHATS:
-            logging.info(f"Тестовая отправка для {chat_id}. Проверяем наличие медиа...")
-            sent_message = None
-            if (update.message.photo or update.message.video or
-                update.message.audio or update.message.document):
-                logging.info(f"Сообщение содержит медиа. Вызываем forward_multimedia для {chat_id}.")
-                sent_message = forward_multimedia(update, chat_id)
-            else:
-                logging.info(f"Отправляем как текст. text='{msg_text}', chat_id={chat_id}")
-                sent_message = send_message_with_retry(chat_id, msg_text)
-            if sent_message:
-                forwarded[chat_id] = sent_message.message_id
-            else:
-                logging.error(f"Тестовая отправка: не удалось отправить сообщение в чат {chat_id}.")
-                failed.append(chat_id)
-        if forwarded:
-            forwarded_messages[update.message.message_id] = forwarded
-            reply_msg = "Тестовое сообщение отправлено.\n"
-            if failed:
-                failed_names = [str(city_lookup.get(cid, cid)) for cid in failed]
-                reply_msg += f"Не удалось отправить в: {', '.join(failed_names)}.\n"
-            reply_msg += "Нажмите /menu для повторного выбора."
-            update.message.reply_text(reply_msg)
+    # Определяем, в какие чаты шлем
+    chat_ids = context.user_data.get("selected_chats", [])
+    if not chat_ids:
+        msg.reply_text("Сначала выберите действие, используя команду /menu.")
         return
 
-    # Обычная рассылка
-    if "selected_chats" not in context.user_data:
-        update.message.reply_text("Сначала выберите действие, используя /menu.")
-        return
+    # Копируем сообщение в каждый чат
+    failures = []
+    for cid in chat_ids:
+        try:
+            bot.copy_message(
+                chat_id=cid,
+                from_chat_id=msg.chat.id,
+                message_id=msg.message_id
+            )
+        except Exception as e:
+            logging.error(f"Не удалось скопировать сообщение в чат {cid}: {e}")
+            failures.append(cid)
 
-    msg_text = update.message.text if update.message.text else ""
-    forwarded = {}
-    failed = []
-    for chat_id in context.user_data["selected_chats"]:
-        logging.info(f"Отправка в {chat_id}. Проверяем наличие медиа...")
-        sent_message = None
-        if (update.message.photo or update.message.video or
-            update.message.audio or update.message.document):
-            logging.info(f"Сообщение содержит медиа. Вызываем forward_multimedia для {chat_id}.")
-            sent_message = forward_multimedia(update, chat_id)
-        else:
-            logging.info(f"Отправляем как текст. text='{msg_text}' chat_id={chat_id}")
-            sent_message = send_message_with_retry(chat_id, msg_text)
-        if sent_message:
-            forwarded[chat_id] = sent_message.message_id
-        else:
-            logging.error(f"Не удалось отправить сообщение в чат {chat_id}.")
-            failed.append(chat_id)
-    if forwarded:
-        forwarded_messages[update.message.message_id] = forwarded
-        selected_option = context.user_data.get("selected_option", "неизвестно")
-        reply_msg = f"Сообщение отправлено в: {selected_option}\n"
-        if failed:
-            failed_names = [str(city_lookup.get(cid, cid)) for cid in failed]
-            reply_msg += f"Не удалось отправить в: {', '.join(failed_names)}.\n"
-        reply_msg += "Нажмите /menu для повторного выбора."
-        update.message.reply_text(reply_msg)
+    # Отвечаем пользователю
+    if failures:
+        failed_list = ", ".join(str(x) for x in failures)
+        msg.reply_text(f"Сообщение отправлено в большинство чатов, но не получилось в: {failed_list}")
+    else:
+        msg.reply_text("Сообщение успешно отправлено во все выбранные чаты. Нажмите /menu, чтобы продолжить.")
+    
+    # Сбрасываем состояние
     context.user_data.pop("selected_chats", None)
     context.user_data.pop("selected_option", None)
 
