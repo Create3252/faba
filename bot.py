@@ -236,13 +236,12 @@ def forward_message(update: Update, context: CallbackContext):
     if not msg or msg.chat.type != "private":
         return
 
-    # Определяем, в какие чаты шлем
+    # определяем, куда шлем
     chat_ids = context.user_data.get("selected_chats", [])
     if not chat_ids:
         msg.reply_text("Сначала выберите действие, используя команду /menu.")
         return
 
-    # Копируем сообщение в каждый чат
     failures = []
     for cid in chat_ids:
         try:
@@ -251,18 +250,19 @@ def forward_message(update: Update, context: CallbackContext):
                 from_chat_id=msg.chat.id,
                 message_id=msg.message_id
             )
+            logging.info(f"Скопировано сообщение {msg.message_id} → чат {cid}")
         except Exception as e:
             logging.error(f"Не удалось скопировать сообщение в чат {cid}: {e}")
             failures.append(cid)
 
-    # Отвечаем пользователю
+    # Ответ пользователю
     if failures:
-        failed_list = ", ".join(str(x) for x in failures)
-        msg.reply_text(f"Сообщение отправлено в большинство чатов, но не получилось в: {failed_list}")
+        failed_str = ", ".join(str(x) for x in failures)
+        msg.reply_text(f"Часть сообщений отправлена, но не получилось в: {failed_str}")
     else:
-        msg.reply_text("Сообщение успешно отправлено во все выбранные чаты. Нажмите /menu, чтобы продолжить.")
-    
-    # Сбрасываем состояние
+        msg.reply_text("Сообщение успешно доставлено во все чаты. Нажмите /menu для нового выбора.")
+
+    # вычисление чистки состояния
     context.user_data.pop("selected_chats", None)
     context.user_data.pop("selected_option", None)
 
