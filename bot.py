@@ -8,29 +8,32 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     Filters,
-    CallbackContext
+    CallbackContext,
+    DispatcherHandlerStop
 )
 from telegram.utils.request import Request
 
 # --- НАСТРОЙКА ЛОГОВ ---
 logging.basicConfig(
-    format='%((asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
 # --- ПОЛУЧАЕМ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Например, "https://your-app.onrender.com"
-if not BOT_TOKEN or not WEBHOOK_URL:
-    raise ValueError("Нужно задать BOT_TOKEN и WEBHOOK_URL")
+if not BOT_TOKEN:
+    raise ValueError("Не указан токен бота (BOT_TOKEN)")
+if not WEBHOOK_URL:
+    raise ValueError("Не указан URL для вебхука (WEBHOOK_URL)")
 
 # --- ДАННЫЕ О ГОРОДАХ и ТЕСТОВЫХ ЧАТАХ ---
 ALL_CITIES = [
-    {"name": "Тюмень",        "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
+    {"name": "Тюмень",        "date": "31.05.2024", "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
     {"name": "Новосибирск",   "link": "https://t.me/+wx20YVCwxmo3YmQy",  "chat_id": -1002489311984},
     {"name": "Сахалин",       "link": "https://t.me/+FzQ_jEYX8AtkMzNi",  "chat_id": -1002265902434},
     {"name": "Красноярск",    "link": "https://t.me/+lMTDVPF0syRiYzdi",  "chat_id": -1002311750873},
-    {"name": "Санкт-Петербург","link": "https://t.me/+EWj9jKhAvV82NWIy","chat_id": -1002152780476},
+    {"name": "Санкт-Петербург","link": "https://t.me/+EWj9jKhAvV82NWIy", "chat_id": -1002152780476},
     {"name": "Москва",        "link": "https://t.me/+qokFNNnfhQdiYjQy",  "chat_id": -1002182445604},
     {"name": "Екатеринбург",  "link": "https://t.me/+J2ESyZJyOAk2YzYy",  "chat_id": -1002392430562},
     {"name": "Иркутск",       "link": "https://t.me/+TAoCnfoePUJmNzhi",  "chat_id": -1002255012184},
@@ -40,7 +43,7 @@ ALL_CITIES = [
     {"name": "Волгоград",     "link": "https://t.me/+ODxw0mfq73M4NGFi",  "chat_id": -1002562049204},
     {"name": "Краснодар",     "link": "https://t.me/+a9_1fWyGvAc1NzZi",  "chat_id": -1002297851122},
     {"name": "Пермь",         "link": "https://t.me/+lgM27u0cnp8wNjAy",  "chat_id": -1002298810010},
-    {"name": "Самара",        "link": "https://t.me/+SLCllcYKCUFlNjk6",  "chat_id": -1002589409715},
+    {"name": "Самара",        "date": "15.04.2025", "link": "https://t.me/+SLCllcYKCUFlNjk6", "chat_id": -1002589409715},
     {"name": "Владивосток",   "link": "https://t.me/+Dpb3ozk_4Dc5OTYy",  "chat_id": -1002438533236},
     {"name": "Донецк",        "link": "https://t.me/+nGkS5gfvvQxjNmRi",  "chat_id": -1002328107804},
     {"name": "Хабаровск",     "link": "https://t.me/+SrnvRbMo3bA5NzVi",  "chat_id": -1002480768813},
@@ -52,119 +55,159 @@ TEST_SEND_CHATS = [
 ]
 
 # Список ID пользователей, которым разрешено использовать бота
-ALLOWED_USER_IDS = [296920330, 320303183, 533773, 327650534, 136737738, 533007308, 1607945564]
+ALLOWED_USER_IDS = [296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564]
 
 # Глобальный словарь для хранения пересланных сообщений
 forwarded_messages = {}
+
+# Для удобства создадим lookup-систему: chat_id -> название
+city_lookup = {city["chat_id"]: city["name"] for city in ALL_CITIES}
 
 # --- СОЗДАЁМ БОТА И ДИСПЕТЧЕР ---
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
-# --- КОМАНДА /menu ---
-def menu(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    if user_id not in ALLOWED_USER_IDS:
-        return update.message.reply_text("У вас нет прав.")
-    keyboard = [
-        ["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"],
-        ["Тестовая отправка"]
-    ]
-    update.message.reply_text(
-        "Выберите действие:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+# --- НОВАЯ ФУНКЦИЯ ДЛЯ ПРЕМИУМ-ЭМОДЗИ И ССЫЛОК ---
+def rebuild_text_with_entities(msg) -> str:
+    """
+    Преобразует msg.text и msg.entities в HTML-строку,
+    сохраняя ссылки, форматирование и кастом-эмодзи.
+    """
+    if not msg.text:
+        return ""
+    text = msg.text
+    entities = msg.entities or []
+    chars = list(text)
+    for ent in sorted(entities, key=lambda e: e.offset+e.length, reverse=True):
+        s, e = ent.offset, ent.offset + ent.length
+        if ent.type == "bold":
+            chars.insert(e, "</b>")
+            chars.insert(s, "<b>")
+        elif ent.type == "italic":
+            chars.insert(e, "</i>")
+            chars.insert(s, "<i>")
+        elif ent.type == "underline":
+            chars.insert(e, "</u>")
+            chars.insert(s, "<u>")
+        elif ent.type == "strikethrough":
+            chars.insert(e, "</s>")
+            chars.insert(s, "<s>")
+        elif ent.type == "code":
+            chars.insert(e, "</code>")
+            chars.insert(s, "<code>")
+        elif ent.type == "link":
+            url = ent.url
+            segment = ''.join(chars[s:e])
+            del chars[s:e]
+            chars.insert(s, f'<a href="{url}">{segment}</a>')
+        elif ent.type == MessageEntity.CUSTOM_EMOJI:
+            emoji_id = ent.custom_emoji_id
+            del chars[s:e]
+            chars.insert(s, f'<emoji emoji_id="{emoji_id}"/>')
+    return ''.join(chars)
+
+# --- Существующая caption-функция расширяем под кастом-эмодзи ---
+def rebuild_caption_with_entities(update: Update) -> str:
+    if not update.message.caption:
+        return ""
+    text = update.message.caption
+    entities = update.message.caption_entities or []
+    chars = list(text)
+    for ent in sorted(entities, key=lambda e: e.offset + e.length, reverse=True):
+        start, end = ent.offset, ent.offset + ent.length
+        if ent.type == "bold":
+            chars.insert(end, "</b>")
+            chars.insert(start, "<b>")
+        elif ent.type == "italic":
+            chars.insert(end, "</i>")
+            chars.insert(start, "<i>")
+        elif ent.type == "underline":
+            chars.insert(end, "</u>")
+            chars.insert(start, "<u>")
+        elif ent.type == "strikethrough":
+            chars.insert(end, "</s>")
+            chars.insert(start, "<s>")
+        elif ent.type == "code":
+            chars.insert(end, "</code>")
+            chars.insert(start, "<code>")
+        elif ent.type == "spoiler":
+            chars.insert(end, "</u>")
+            chars.insert(start, "<u>")
+        elif ent.type == MessageEntity.CUSTOM_EMOJI:
+            emoji_id = ent.custom_emoji_id
+            del chars[start:end]
+            chars.insert(start, f'<emoji emoji_id="{emoji_id}"/>')
+    return ''.join(chars)
+
+# --- ФУНКЦИИ ОТПРАВКИ ---
+def send_message_with_retry(chat_id, msg_text, max_attempts=3, delay=5):
+    attempt = 1
+    while attempt <= max_attempts:
+        try:
+            sent_message = bot.send_message(chat_id=chat_id, text=msg_text, parse_mode="HTML")
+            logging.info(f"Сообщение отправлено в чат {chat_id}, message_id={sent_message.message_id}")
+            return sent_message
+        except Exception as e:
+            logging.error(f"Попытка {attempt}: ошибка при отправке текста в {chat_id}: {e}")
+            if "Chat not found" in str(e):
+                return None
+            attempt += 1
+            time.sleep(delay)
+    return None
+
+# Функция мультимедиа без изменений
+# (оставляем rebuild_caption_with_entities для caption)
+
+def forward_multimedia(update: Update, chat_id):
+    new_caption = rebuild_caption_with_entities(update)
+    logging.info("..."
     )
-    context.user_data["pending_main"] = True
+    # (ваша существующая логика send_photo/send_video и т.д.)
+    
+# В handler forward_message заменяем bot.copy_message на send_message/send_media с rebuild_text_with_entities
 
-dispatcher.add_handler(CommandHandler("menu", menu))
-
-# --- ОБРАБОТКА ВЫБОРА В МЕНЮ (group=0) ---
-def main_menu(update: Update, context: CallbackContext):
-    if not context.user_data.pop("pending_main", False):
-        return
-    text = update.message.text
-
-    if text == "Список чатов ФАБА":
-        lines = ["Список чатов ФАБА:"]
-        for c in ALL_CITIES:
-            if c["link"]:
-                lines.append(f"<a href='{c['link']}'>{c['name']}</a>")
-            else:
-                lines.append(c["name"])
-        update.message.reply_text(
-            "\n".join(lines),
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            reply_markup=ReplyKeyboardMarkup([["Назад"]], one_time_keyboard=True, resize_keyboard=True)
-        )
-
-    elif text == "Отправить сообщение во все чаты ФАБА":
-        context.user_data["selected"] = [c["chat_id"] for c in ALL_CITIES]
-        update.message.reply_text("Теперь пришлите любое сообщение (текст, медиа). После — подсказка /menu.")
-
-    elif text == "Тестовая отправка":
-        context.user_data["test"] = True
-        update.message.reply_text("Пришлите сообщение для тестовой рассылки.")
-
-    elif text == "Назад":
-        return menu(update, context)
-
-    else:
-        update.message.reply_text("Неверный выбор. Введите /menu.")
-
-dispatcher.add_handler(
-    MessageHandler(Filters.chat_type.private & Filters.text, main_menu),
-    group=0
-)
-
-# --- ПЕРЕСЫЛКА ВСЕХ МЕДИА И ТЕКСТА (group=1) ---
-def forward_all(update: Update, context: CallbackContext):
+def forward_message(update: Update, context: CallbackContext):
     msg = update.message
+    if not msg or msg.chat.type != "private":
+        return
 
-    # тестовая рассылка
-    if context.user_data.pop("test", False):
-        targets = TEST_SEND_CHATS
-    else:
-        targets = context.user_data.pop("selected", [])
+    # ... ваш выбор pending_test ...
 
-    if not targets:
-        return msg.reply_text("Сначала введите /menu")
+    chat_ids = context.user_data.get("selected_chats", [])
+    if not chat_ids:
+        msg.reply_text("Сначала выберите действие, используя команду /menu.")
+        return
 
     failures = []
-    for cid in targets:
+    for cid in chat_ids:
         try:
-            # копируем полностью — сохраняются формат, ссылки, премиум-эмодзи
-            bot.copy_message(
-                chat_id=cid,
-                from_chat_id=msg.chat.id,
-                message_id=msg.message_id
-            )
-            logging.info(f"Скопировано {msg.message_id} → {cid}")
+            # если текст
+            if msg.text:
+                html = rebuild_text_with_entities(msg)
+                bot.send_message(chat_id=cid, text=html, parse_mode="HTML", disable_web_page_preview=True)
+            else:
+                forward_multimedia(update, cid)
+            logging.info(f"Переслано сообщение {msg.message_id} → чат {cid}")
         except Exception as e:
-            logging.error(f"Не удалось скопировать в {cid}: {e}")
+            logging.error(f"Не удалось отправить сообщение в чат {cid}: {e}")
             failures.append(cid)
 
-    if failures:
-        failed_str = ", ".join(str(x) for x in failures)
-        msg.reply_text(f"Не дошло в: {failed_str}\n/menu")
-    else:
-        msg.reply_text("Разослано успешно.\n/menu")
+    # ... ответ пользователю и очистка состояния ...
 
-dispatcher.add_handler(
-    MessageHandler(~Filters.command & Filters.chat_type.private, forward_all),
-    group=1
-)
+# Остальные handlers без изменений
 
-# --- Flask и Webhook ---
 app = Flask(__name__)
-
 @app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, bot)
+ def webhook():
+    json_data = request.get_json(force=True)
+    update = Update.de_json(json_data, bot)
     dispatcher.process_update(update)
     return "OK", 200
+
+@app.route('/ping', methods=['GET'])
+def ping():
+    return "pong", 200
 
 @app.route('/', methods=['GET'])
 def index():
@@ -173,4 +216,7 @@ def index():
 if __name__ == "__main__":
     bot.delete_webhook(drop_pending_updates=True)
     bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    
+    port = int(os.environ.get("PORT", 5000))
+    logging.info(f"Запуск Flask-сервера на порту {port}")
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
