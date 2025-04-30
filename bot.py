@@ -2,7 +2,7 @@ import os
 import time
 import logging
 from flask import Flask, request
-from telegram import Update, Bot, ReplyKeyboardMarkup
+from telegram import Update, Bot, ReplyKeyboardMarkup, MessageEntity
 from telegram.ext import (
     Dispatcher,
     CommandHandler,
@@ -59,11 +59,7 @@ req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
-# --- МАРКИРОВКА СОСТОЯНИЙ В user_data ---
-# pending_main_menu — ждем нажатия кнопки меню
-# pending_test      — ждем ввода тестового сообщения
-# selected_chats    — ждем ввода рассылки по всем чатам
-
+# --- МЕНЮ ---
 def menu(update: Update, context: CallbackContext):
     if update.message.from_user.id not in ALLOWED_USER_IDS:
         update.message.reply_text("У вас нет прав для использования этого бота.")
@@ -74,12 +70,12 @@ def menu(update: Update, context: CallbackContext):
     ]
     markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=markup)
-    # ставим флаг ожидания выбора
     context.user_data.clear()
     context.user_data["pending_main_menu"] = True
 
 dispatcher.add_handler(CommandHandler("menu", menu))
 
+# --- ОБРАБОТКА ВЫБОРА ---
 def handle_main_menu(update: Update, context: CallbackContext):
     user = update.message.from_user.id
     if user not in ALLOWED_USER_IDS or not context.user_data.get("pending_main_menu"):
@@ -93,47 +89,42 @@ def handle_main_menu(update: Update, context: CallbackContext):
             lines.append(f"<a href='{city['link']}'>{city['name']}</a>")
         back = ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True, one_time_keyboard=True)
         update.message.reply_text(
-            "\n".join(lines),
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            reply_markup=back
+            "\n".join(lines), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back
         )
         return
 
     if choice == "Отправить сообщение во все чаты ФАБА":
         context.user_data["selected_chats"] = [c["chat_id"] for c in ALL_CITIES]
         update.message.reply_text(
-            "Теперь отправьте сообщение (текст или медиа) для рассылки.\n"
-            "Нажмите /menu для отмены.",
-            disable_web_page_preview=True
+            "Теперь отправьте сообщение (текст или медиа) для рассылки.\nНажмите /menu для отмены.",
         )
         return
 
     if choice == "Тестовая отправка":
         context.user_data["pending_test"] = True
         update.message.reply_text(
-            "Введите текст или медиа для тестовой отправки.\n"
-            "Нажмите /menu для отмены.",
-            disable_web_page_preview=True
+            "Введите текст или медиа для тестовой отправки.\nНажмите /menu для отмены."
         )
         return
 
     if choice == "Назад":
-        # просто переоткрываем меню
         return menu(update, context)
 
-    # на всякий случай
     update.message.reply_text("Неверный выбор. /menu")
 
-dispatcher.add_handler(MessageHandler(Filters.chat_type.private & Filters.text, handle_main_menu), group=0)
+dispatcher.add_handler(
+    MessageHandler(Filters.chat_type.private & Filters.text, handle_main_menu),
+    group=0
+)
 
+# --- ПЕРЕСЫЛКА ---
 def forward_message(update: Update, context: CallbackContext):
     msg = update.message
     user = msg.from_user.id
     if user not in ALLOWED_USER_IDS:
         return
 
-    # 1) Тестовая отправка?
+    # Тестовая отправка
     if context.user_data.pop("pending_test", False):
         failures = []
         for cid in TEST_SEND_CHATS:
@@ -142,37 +133,41 @@ def forward_message(update: Update, context: CallbackContext):
             except Exception:
                 failures.append(cid)
         if failures:
-            update.message.reply_text(
-                f"Не удалось отправить в тестовые чаты: {', '.join(map(str, failures))}.",
-            )
+            update.message.reply_text(f"Не удалось отправить в тестовые чаты: {', '.join(map(str, failures))}.")
         else:
             update.message.reply_text("Тестовое сообщение отправлено.")
         update.message.reply_text("Нажмите /menu для нового выбора.")
         return
 
-    # 2) Основная рассылка?
+    # Основная рассылка
     chat_ids = context.user_data.pop("selected_chats", None)
     if chat_ids:
         failures = []
         for cid in chat_ids:
             try:
-                bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=msg.message_id)
+                if msg.text and not (msg.photo or msg.video or msg.audio or msg.document):
+                    # Текстовое сообщение без медиа — отключаем предпросмотр ссылок
+                    bot.send_message(
+                        chat_id=cid,
+                        text=msg.text,
+                        disable_web_page_preview=True
+                    )
+                else:
+                    # Медиа или комплексное сообщение — копируем штатно
+                    bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=msg.message_id)
             except Exception:
                 failures.append(cid)
         if failures:
-            update.message.reply_text(
-                f"Не отправилось в: {', '.join(map(str, failures))}.",
-            )
+            update.message.reply_text(f"Не отправилось в: {', '.join(map(str, failures))}.")
         else:
             update.message.reply_text("Сообщение доставлено во все чаты.")
         update.message.reply_text("Нажмите /menu для нового выбора.")
         return
 
-    # если ни одного состояния — ничего не делаем
+# фильтруем и по тексту, и по медиа
 dispatcher.add_handler(
     MessageHandler(
-        Filters.chat_type.private &
-        (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document),
+        Filters.chat_type.private & (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document),
         forward_message
     ),
     group=1
