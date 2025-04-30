@@ -1,24 +1,24 @@
 import os
-import time
 import logging
+import time
 from flask import Flask, request
-from telegram import Update, Bot, ReplyKeyboardMarkup, MessageEntity
+from telegram import Update, Bot, ReplyKeyboardMarkup
 from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
 from telegram.utils.request import Request
 
-# --- LOGGING ---
+# --- ЛОГИРОВАНИЕ ---
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%((asctime)s - %(name)s - %(levelname)s - %(message)s)',
     level=logging.INFO
 )
 
-# --- ENVIRONMENT ---
+# --- НАСТРОЙКИ ОКРУЖЕНИЯ ---
 BOT_TOKEN   = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 if not BOT_TOKEN or not WEBHOOK_URL:
     raise RuntimeError("Не указан BOT_TOKEN или WEBHOOK_URL")
 
-# --- DATA ---
+# --- ДАННЫЕ ЧАТОВ ---
 ALL_CITIES = [
     {"name": "Тюмень",        "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
     {"name": "Новосибирск",   "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
@@ -46,74 +46,18 @@ TEST_SEND_CHATS = [
 ]
 ALLOWED_USER_IDS = [296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564]
 
-# --- BOT & DISPATCHER ---
-req = Request(connect_timeout=20, read_timeout=20)
-bot = Bot(token=BOT_TOKEN, request=req)
-dispatcher = Dispatcher(bot, None, workers=4)
+# --- ИНИЦИАЛИЗАЦИЯ ---
+req         = Request(connect_timeout=20, read_timeout=20)
+bot         = Bot(token=BOT_TOKEN, request=req)
+dispatcher  = Dispatcher(bot, None, workers=4)
+app         = Flask(__name__)
 
-# --- HELPERS ---
-def rebuild_entities(text: str, entities: list[MessageEntity]) -> str:
-    """
-    Вставляем HTML-теги по списку MessageEntity.
-    """
-    if not entities:
-        return text
-    chars = list(text)
-    for ent in sorted(entities, key=lambda e: e.offset+e.length, reverse=True):
-        o, l = ent.offset, ent.length
-        if ent.type == "bold":
-            chars.insert(o, "<b>"); chars.insert(o+l+3, "</b>")
-        elif ent.type == "italic":
-            chars.insert(o, "<i>"); chars.insert(o+l+3, "</i>")
-        elif ent.type == "underline":
-            chars.insert(o, "<u>"); chars.insert(o+l+3, "</u>")
-        elif ent.type == "code":
-            chars.insert(o, "<code>"); chars.insert(o+l+6, "</code>")
-        elif ent.type == "spoiler":
-            chars.insert(o, "<u>"); chars.insert(o+l+3, "</u>")
-        # CUSTOM_EMOJI и ссылки (<a>) при копировании через copy_message сохранятся
-    return "".join(chars)
-
-def forward_multimedia(msg: Update.message, chat_id: int):
-    """
-    Если это медиа, шлём соответствующим методом с HTML-подписью.
-    Возвращает объект Message или None.
-    """
-    caption = rebuild_entities(msg.caption or "", msg.caption_entities or [])
-    try:
-        if msg.photo:
-            return bot.send_photo(chat_id=chat_id,
-                                  photo=msg.photo[-1].file_id,
-                                  caption=caption,
-                                  parse_mode="HTML",
-                                  disable_web_page_preview=True)
-        if msg.video:
-            return bot.send_video(chat_id=chat_id,
-                                  video=msg.video.file_id,
-                                  caption=caption,
-                                  parse_mode="HTML",
-                                  disable_web_page_preview=True)
-        if msg.audio:
-            return bot.send_audio(chat_id=chat_id,
-                                  audio=msg.audio.file_id,
-                                  caption=caption,
-                                  parse_mode="HTML")
-        if msg.document:
-            return bot.send_document(chat_id=chat_id,
-                                     document=msg.document.file_id,
-                                     caption=caption,
-                                     parse_mode="HTML",
-                                     disable_web_page_preview=True)
-    except Exception as e:
-        logging.error(f"forward_multimedia fail: {e}")
-    return None
-
-# --- MENU COMMAND ---
+# --- /menu ---
 def menu(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    if user_id not in ALLOWED_USER_IDS:
+    uid = update.effective_user.id
+    if uid not in ALLOWED_USER_IDS:
         return update.message.reply_text("У вас нет прав.")
-    # чистим все предыдущие состояния
+    # сбросим все флаги
     context.user_data.clear()
     keyboard = [
         ["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"],
@@ -124,14 +68,19 @@ def menu(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(CommandHandler("menu", menu))
 
-# --- HANDLE MENU SELECTION ---
-def handle_main_menu(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    if user_id not in ALLOWED_USER_IDS:
+# --- выбор в меню ---
+def handle_menu_choice(update: Update, context: CallbackContext):
+    uid    = update.effective_user.id
+    text   = update.message.text.strip()
+    if uid not in ALLOWED_USER_IDS or text not in (
+        "Список чатов ФАБА",
+        "Отправить сообщение во все чаты ФАБА",
+        "Тестовая отправка",
+        "Назад"
+    ):
         return
-    choice = update.message.text.strip()
-    # Список чатов
-    if choice == "Список чатов ФАБА":
+
+    if text == "Список чатов ФАБА":
         lines = ["Список чатов ФАБА:"]
         for c in ALL_CITIES:
             lines.append(f"<a href='{c['link']}'>{c['name']}</a>")
@@ -143,46 +92,43 @@ def handle_main_menu(update: Update, context: CallbackContext):
             reply_markup=back
         )
 
-    # Отправка по всем чатам
-    if choice == "Отправить сообщение во все чаты ФАБА":
+    if text == "Отправить сообщение во все чаты ФАБА":
         context.user_data["selected_chats"] = [c["chat_id"] for c in ALL_CITIES]
         return update.message.reply_text(
-            "Теперь отправьте **ваше** сообщение (текст или медиа)\n"
-            "или нажмите /menu для отмены.",
-            parse_mode="Markdown",
+            "Теперь отправьте своё сообщение (текст или медиа).\n"
+            "Нажмите /menu для отмены.",
             disable_web_page_preview=True
         )
 
-    # Тестовая отправка
-    if choice == "Тестовая отправка":
+    if text == "Тестовая отправка":
         context.user_data["pending_test"] = True
         return update.message.reply_text(
             "Введите текст или медиа для тестовой отправки.\n"
-            "или нажмите /menu для отмены.",
+            "Нажмите /menu для отмены.",
             disable_web_page_preview=True
         )
 
     # Назад
-    if choice == "Назад":
+    if text == "Назад":
         return menu(update, context)
 
 dispatcher.add_handler(
     MessageHandler(
-        Filters.chat_type.private & Filters.text & 
+        Filters.chat_type.private & Filters.text &
         Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Тестовая отправка|Назад)$"),
-        handle_main_menu
+        handle_menu_choice
     ),
     group=0
 )
 
-# --- FORWARDING CONTENT ---
+# --- пересылка копированием для всего контента ---
 def forward_message(update: Update, context: CallbackContext):
     msg = update.message
-    user_id = msg.from_user.id
-    if user_id not in ALLOWED_USER_IDS:
+    uid = msg.from_user.id
+    if uid not in ALLOWED_USER_IDS:
         return
 
-    # Игнорируем меню-тексты и любые команды
+    # если это повтор кнопки меню или команда — игнорируем
     if msg.text and (msg.text.startswith("/") or msg.text in {
         "Список чатов ФАБА",
         "Отправить сообщение во все чаты ФАБА",
@@ -191,59 +137,55 @@ def forward_message(update: Update, context: CallbackContext):
     }):
         return
 
-    # 1) Тестовая отправка
+    # 1) тестовая рассылка?
     if context.user_data.pop("pending_test", False):
         fails = []
         for cid in TEST_SEND_CHATS:
-            if forward_multimedia(msg, cid) is None:
-                # текст
-                text = rebuild_entities(msg.text or "", msg.entities or [])
-                try:
-                    bot.send_message(
-                        chat_id=cid,
-                        text=text,
-                        parse_mode="HTML",
-                        disable_web_page_preview=True
-                    )
-                except:
-                    fails.append(cid)
-        reply = "Тестовое сообщение успешно отправлено." if not fails else f"Не удалось в: {fails}"
-        update.message.reply_text(reply, disable_web_page_preview=True)
-        return update.message.reply_text("Нажмите /menu для нового выбора.", disable_web_page_preview=True)
+            try:
+                bot.copy_message(
+                    chat_id=cid,
+                    from_chat_id=msg.chat.id,
+                    message_id=msg.message_id
+                )
+            except Exception as e:
+                logging.error(f"Test copy to {cid} failed: {e}")
+                fails.append(cid)
+        if fails:
+            update.message.reply_text(f"Не удалось отправить в: {fails}")
+        else:
+            update.message.reply_text("Тестовое сообщение отправлено.")
+        return update.message.reply_text("Нажмите /menu для нового выбора.")
 
-    # 2) Основная рассылка
-    chosen = context.user_data.pop("selected_chats", None)
-    if chosen:
+    # 2) основная рассылка?
+    chats = context.user_data.pop("selected_chats", None)
+    if chats:
         fails = []
-        for cid in chosen:
-            if forward_multimedia(msg, cid) is None:
-                text = rebuild_entities(msg.text or "", msg.entities or [])
-                try:
-                    bot.send_message(
-                        chat_id=cid,
-                        text=text,
-                        parse_mode="HTML",
-                        disable_web_page_preview=True
-                    )
-                except:
-                    fails.append(cid)
-        reply = "Сообщение доставлено во все чаты." if not fails else f"Не доставлено в: {fails}"
-        update.message.reply_text(reply, disable_web_page_preview=True)
-        return update.message.reply_text("Нажмите /menu для нового выбора.", disable_web_page_preview=True)
+        for cid in chats:
+            try:
+                bot.copy_message(
+                    chat_id=cid,
+                    from_chat_id=msg.chat.id,
+                    message_id=msg.message_id
+                )
+            except Exception as e:
+                logging.error(f"Bulk copy to {cid} failed: {e}")
+                fails.append(cid)
+        if fails:
+            update.message.reply_text(f"Не доставлено в: {fails}")
+        else:
+            update.message.reply_text("Сообщение доставлено во все чаты.")
+        return update.message.reply_text("Нажмите /menu для нового выбора.")
 
 dispatcher.add_handler(
     MessageHandler(
-        Filters.chat_type.private & (
-            Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document
-        ),
+        Filters.chat_type.private &
+        (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document),
         forward_message
     ),
     group=1
 )
 
-# --- FLASK & WEBHOOK ---
-app = Flask(__name__)
-
+# --- WEBHOOK via Flask ---
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
