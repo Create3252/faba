@@ -8,17 +8,17 @@ from telegram.utils.request import Request
 
 # --- ЛОГИРОВАНИЕ ---
 logging.basicConfig(
-    format='%((asctime)s - %(name)s - %(levelname)s - %(message)s)',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# --- НАСТРОЙКИ ОКРУЖЕНИЯ ---
+# --- ПАРАМЕТРЫ ОКРУЖЕНИЯ ---
 BOT_TOKEN   = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 if not BOT_TOKEN or not WEBHOOK_URL:
     raise RuntimeError("Не указан BOT_TOKEN или WEBHOOK_URL")
 
-# --- ДАННЫЕ ЧАТОВ ---
+# --- СПИСОК ЧАТОВ ---
 ALL_CITIES = [
     {"name": "Тюмень",        "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
     {"name": "Новосибирск",   "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
@@ -44,35 +44,42 @@ TEST_SEND_CHATS = [
     -1002596576819,  # Москва тест
     -1002584369534   # Тюмень тест
 ]
-ALLOWED_USER_IDS = [296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564]
+
+# --- ПРАВА ДОСТУПА ---
+ALLOWED_USER_IDS = [
+    296920330, 320303183, 533773, 327650534,
+    533007308, 136737738, 1607945564
+]
 
 # --- ИНИЦИАЛИЗАЦИЯ ---
-req         = Request(connect_timeout=20, read_timeout=20)
-bot         = Bot(token=BOT_TOKEN, request=req)
-dispatcher  = Dispatcher(bot, None, workers=4)
-app         = Flask(__name__)
+req        = Request(connect_timeout=20, read_timeout=20)
+bot        = Bot(token=BOT_TOKEN, request=req)
+dispatcher = Dispatcher(bot, None, workers=4)
+app        = Flask(__name__)
 
 # --- /menu ---
 def menu(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     if uid not in ALLOWED_USER_IDS:
         return update.message.reply_text("У вас нет прав.")
-    # сбросим все флаги
     context.user_data.clear()
-    keyboard = [
+    kb = [
         ["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"],
         ["Тестовая отправка"]
     ]
-    markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    markup = ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=markup)
 
 dispatcher.add_handler(CommandHandler("menu", menu))
 
-# --- выбор в меню ---
-def handle_menu_choice(update: Update, context: CallbackContext):
-    uid    = update.effective_user.id
-    text   = update.message.text.strip()
-    if uid not in ALLOWED_USER_IDS or text not in (
+# --- Обработка нажатий меню ---
+def handle_choice(update: Update, context: CallbackContext):
+    uid  = update.effective_user.id
+    txt  = update.message.text.strip()
+    if uid not in ALLOWED_USER_IDS:
+        return
+    # если кнопка не из этого списка — игнор
+    if txt not in (
         "Список чатов ФАБА",
         "Отправить сообщение во все чаты ФАБА",
         "Тестовая отправка",
@@ -80,7 +87,7 @@ def handle_menu_choice(update: Update, context: CallbackContext):
     ):
         return
 
-    if text == "Список чатов ФАБА":
+    if txt == "Список чатов ФАБА":
         lines = ["Список чатов ФАБА:"]
         for c in ALL_CITIES:
             lines.append(f"<a href='{c['link']}'>{c['name']}</a>")
@@ -92,7 +99,7 @@ def handle_menu_choice(update: Update, context: CallbackContext):
             reply_markup=back
         )
 
-    if text == "Отправить сообщение во все чаты ФАБА":
+    if txt == "Отправить сообщение во все чаты ФАБА":
         context.user_data["selected_chats"] = [c["chat_id"] for c in ALL_CITIES]
         return update.message.reply_text(
             "Теперь отправьте своё сообщение (текст или медиа).\n"
@@ -100,7 +107,7 @@ def handle_menu_choice(update: Update, context: CallbackContext):
             disable_web_page_preview=True
         )
 
-    if text == "Тестовая отправка":
+    if txt == "Тестовая отправка":
         context.user_data["pending_test"] = True
         return update.message.reply_text(
             "Введите текст или медиа для тестовой отправки.\n"
@@ -109,35 +116,31 @@ def handle_menu_choice(update: Update, context: CallbackContext):
         )
 
     # Назад
-    if text == "Назад":
+    if txt == "Назад":
         return menu(update, context)
 
 dispatcher.add_handler(
     MessageHandler(
-        Filters.chat_type.private & Filters.text &
-        Filters.regex("^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Тестовая отправка|Назад)$"),
-        handle_menu_choice
+        Filters.chat_type.private & Filters.regex(
+            "^(Список чатов ФАБА|Отправить сообщение во все чаты ФАБА|Тестовая отправка|Назад)$"
+        ),
+        handle_choice
     ),
     group=0
 )
 
-# --- пересылка копированием для всего контента ---
-def forward_message(update: Update, context: CallbackContext):
+# --- Универсальная пересылка с копированием или без предпросмотра ---
+def forward_all(update: Update, context: CallbackContext):
     msg = update.message
     uid = msg.from_user.id
     if uid not in ALLOWED_USER_IDS:
         return
 
-    # если это повтор кнопки меню или команда — игнорируем
-    if msg.text and (msg.text.startswith("/") or msg.text in {
-        "Список чатов ФАБА",
-        "Отправить сообщение во все чаты ФАБА",
-        "Тестовая отправка",
-        "Назад"
-    }):
+    # Игнор команд и кнопок
+    if msg.text and msg.text.startswith("/"):
         return
 
-    # 1) тестовая рассылка?
+    # 1) Тестовая
     if context.user_data.pop("pending_test", False):
         fails = []
         for cid in TEST_SEND_CHATS:
@@ -148,44 +151,57 @@ def forward_message(update: Update, context: CallbackContext):
                     message_id=msg.message_id
                 )
             except Exception as e:
-                logging.error(f"Test copy to {cid} failed: {e}")
-                fails.append(cid)
-        if fails:
-            update.message.reply_text(f"Не удалось отправить в: {fails}")
-        else:
-            update.message.reply_text("Тестовое сообщение отправлено.")
+                logging.error(f"test copy to {cid} failed: {e}")
+                fails.append(str(cid))
+        text = (
+            f"Не удалось в: {', '.join(fails)}"
+            if fails else
+            "Тестовое сообщение отправлено."
+        )
+        update.message.reply_text(text)
         return update.message.reply_text("Нажмите /menu для нового выбора.")
 
-    # 2) основная рассылка?
+    # 2) Основная
     chats = context.user_data.pop("selected_chats", None)
     if chats:
         fails = []
         for cid in chats:
             try:
-                bot.copy_message(
-                    chat_id=cid,
-                    from_chat_id=msg.chat.id,
-                    message_id=msg.message_id
-                )
+                # если в тексте есть URL — шлём вручную без предпросмотра
+                if msg.text and msg.entities and any(e.type == "url" for e in msg.entities):
+                    bot.send_message(
+                        chat_id=cid,
+                        text=msg.text,
+                        entities=msg.entities,
+                        disable_web_page_preview=True
+                    )
+                else:
+                    bot.copy_message(
+                        chat_id=cid,
+                        from_chat_id=msg.chat.id,
+                        message_id=msg.message_id
+                    )
             except Exception as e:
-                logging.error(f"Bulk copy to {cid} failed: {e}")
-                fails.append(cid)
-        if fails:
-            update.message.reply_text(f"Не доставлено в: {fails}")
-        else:
-            update.message.reply_text("Сообщение доставлено во все чаты.")
+                logging.error(f"copy/send to {cid} failed: {e}")
+                fails.append(str(cid))
+        text = (
+            f"Не доставлено в: {', '.join(fails)}"
+            if fails else
+            "Сообщение доставлено во все чаты."
+        )
+        update.message.reply_text(text)
         return update.message.reply_text("Нажмите /menu для нового выбора.")
 
 dispatcher.add_handler(
     MessageHandler(
         Filters.chat_type.private &
         (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document),
-        forward_message
+        forward_all
     ),
     group=1
 )
 
-# --- WEBHOOK via Flask ---
+# --- Flask webhook ---
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
@@ -200,5 +216,4 @@ def index():
 if __name__ == "__main__":
     bot.delete_webhook(drop_pending_updates=True)
     bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
