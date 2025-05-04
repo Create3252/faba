@@ -2,7 +2,7 @@ import os
 import time
 import logging
 from flask import Flask, request
-from telegram import Update, Bot, ReplyKeyboardMarkup
+from telegram import Update, Bot, ReplyKeyboardMarkup, MessageEntity
 from telegram.ext import (
     Dispatcher,
     CommandHandler,
@@ -54,7 +54,8 @@ TEST_SEND_CHATS = [
 
 # --- ПРАВА ДОСТУПА ---
 ALLOWED_USER_IDS = [
-    296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564
+    296920330, 320303183, 533773, 327650534,
+    533007308, 136737738, 1607945564
 ]
 
 # --- Инициализация бота и диспетчера ---
@@ -73,7 +74,6 @@ def menu(update: Update, context: CallbackContext):
     ]
     markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=markup)
-    # Сбрасываем все флаги и ставим ожидание выбора пунктов меню
     context.user_data.clear()
     context.user_data["pending_main_menu"] = True
 
@@ -85,7 +85,6 @@ def handle_main_menu(update: Update, context: CallbackContext):
     if user not in ALLOWED_USER_IDS or not context.user_data.get("pending_main_menu"):
         return
     choice = update.message.text.strip()
-    # После выбора снимаем флаг меню
     context.user_data.pop("pending_main_menu", None)
 
     if choice == "Список чатов ФАБА":
@@ -130,18 +129,17 @@ dispatcher.add_handler(
     group=0
 )
 
-# --- ПЕРЕСЫЛКА СООБЩЕНИЙ и МЕДИА ---
+# --- ПЕРЕСЫЛКА СООБЩЕНИЙ И МЕДИА ---
 def forward_message(update: Update, context: CallbackContext):
     msg = update.message
     user = msg.from_user.id
     if user not in ALLOWED_USER_IDS:
         return
 
-    # 1) Если это тестовая отправка — обрабатываем и сразу выходим
+    # Тестовая отправка
     if context.user_data.pop("pending_test", False):
         failures = []
         for cid in TEST_SEND_CHATS:
-            # проверяем наличие ссылок для выключения предпросмотра
             has_link = any(ent.type in ("url", "text_link") for ent in (msg.entities or []))
             try:
                 if msg.text and has_link:
@@ -157,9 +155,7 @@ def forward_message(update: Update, context: CallbackContext):
                         from_chat_id=msg.chat.id,
                         message_id=msg.message_id
                     )
-                logging.info(f"Тестовая отправка: сообщение {msg.message_id} → чат {cid}")
-            except Exception as e:
-                logging.error(f"Тестовая отправка: ошибка при отправке в {cid}: {e}")
+            except Exception:
                 failures.append(cid)
         if failures:
             update.message.reply_text(f"Не удалось отправить в тестовые чаты: {', '.join(map(str, failures))}.")
@@ -168,7 +164,7 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("Нажмите /menu для нового выбора.")
         return
 
-    # 2) Основная рассылка по выбранным чатам
+    # Основная рассылка
     chat_ids = context.user_data.pop("selected_chats", None)
     if chat_ids:
         failures = []
@@ -188,12 +184,10 @@ def forward_message(update: Update, context: CallbackContext):
                         from_chat_id=msg.chat.id,
                         message_id=msg.message_id
                     )
-                logging.info(f"Скопировано сообщение {msg.message_id} → чат {cid}")
-            except Exception as e:
-                logging.error(f"Ошибка копирования сообщения в чат {cid}: {e}")
+            except Exception:
                 failures.append(cid)
         if failures:
-            update.message.reply_text(f"Не отправилось в: {', '.join(map(str, failures))}.")
+            update.message.reply_text(f"Не удалось отправить в: {', '.join(map(str, failures))}.")
         else:
             update.message.reply_text("Сообщение доставлено во все чаты.")
         update.message.reply_text("Нажмите /menu для нового выбора.")
@@ -209,7 +203,7 @@ dispatcher.add_handler(
     group=1
 )
 
-# --- Flask-приложение и Webhook ---
+# --- Flask и Webhook ---
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
@@ -218,6 +212,11 @@ def webhook():
     update = Update.de_json(data, bot)
     dispatcher.process_update(update)
     return "OK", 200
+
+# восстановили GET /ping для healthcheck
+@app.route('/ping', methods=['GET'])
+def ping():
+    return "pong", 200
 
 @app.route('/', methods=['GET'])
 def index():
