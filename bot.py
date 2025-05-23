@@ -2,7 +2,7 @@ import os
 import time
 import logging
 from flask import Flask, request
-from telegram import Update, Bot, ReplyKeyboardMarkup, MessageEntity
+from telegram import Update, Bot, ReplyKeyboardMarkup
 from telegram.ext import (
     Dispatcher,
     CommandHandler,
@@ -54,8 +54,7 @@ TEST_SEND_CHATS = [
 
 # --- ПРАВА ДОСТУПА ---
 ALLOWED_USER_IDS = [
-    296920330, 320303183, 533773, 327650534,
-    533007308, 136737738, 1607945564
+    296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564
 ]
 
 # --- Инициализация бота и диспетчера ---
@@ -129,32 +128,23 @@ dispatcher.add_handler(
     group=0
 )
 
-# --- ПЕРЕСЫЛКА СООБЩЕНИЙ И МЕДИА ---
+# --- ПЕРЕСЫЛКА СООБЩЕНИЙ и МЕДИА ---
 def forward_message(update: Update, context: CallbackContext):
     msg = update.message
     user = msg.from_user.id
     if user not in ALLOWED_USER_IDS:
         return
 
-    # Тестовая отправка
+    # 1) Тестовая отправка
     if context.user_data.pop("pending_test", False):
         failures = []
         for cid in TEST_SEND_CHATS:
-            has_link = any(ent.type in ("url", "text_link") for ent in (msg.entities or []))
             try:
-                if msg.text and has_link:
-                    bot.send_message(
-                        chat_id=cid,
-                        text=msg.text,
-                        entities=msg.entities,
-                        disable_web_page_preview=True
-                    )
-                else:
-                    bot.copy_message(
-                        chat_id=cid,
-                        from_chat_id=msg.chat.id,
-                        message_id=msg.message_id
-                    )
+                bot.copy_message(
+                    chat_id=cid,
+                    from_chat_id=msg.chat.id,
+                    message_id=msg.message_id
+                )
             except Exception:
                 failures.append(cid)
         if failures:
@@ -164,30 +154,21 @@ def forward_message(update: Update, context: CallbackContext):
         update.message.reply_text("Нажмите /menu для нового выбора.")
         return
 
-    # Основная рассылка
+    # 2) Основная рассылка
     chat_ids = context.user_data.pop("selected_chats", None)
     if chat_ids:
         failures = []
         for cid in chat_ids:
-            has_link = any(ent.type in ("url", "text_link") for ent in (msg.entities or []))
             try:
-                if msg.text and has_link:
-                    bot.send_message(
-                        chat_id=cid,
-                        text=msg.text,
-                        entities=msg.entities,
-                        disable_web_page_preview=True
-                    )
-                else:
-                    bot.copy_message(
-                        chat_id=cid,
-                        from_chat_id=msg.chat.id,
-                        message_id=msg.message_id
-                    )
+                bot.copy_message(
+                    chat_id=cid,
+                    from_chat_id=msg.chat.id,
+                    message_id=msg.message_id
+                )
             except Exception:
                 failures.append(cid)
         if failures:
-            update.message.reply_text(f"Не удалось отправить в: {', '.join(map(str, failures))}.")
+            update.message.reply_text(f"Не отправилось в: {', '.join(map(str, failures))}.")
         else:
             update.message.reply_text("Сообщение доставлено во все чаты.")
         update.message.reply_text("Нажмите /menu для нового выбора.")
@@ -196,14 +177,20 @@ def forward_message(update: Update, context: CallbackContext):
 dispatcher.add_handler(
     MessageHandler(
         Filters.chat_type.private & (
-            Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document
+            Filters.text
+            | Filters.photo
+            | Filters.video
+            | Filters.audio
+            | Filters.document
+            | Filters.voice       # ← добавлено
+            | Filters.video_note  # ← добавлено
         ),
         forward_message
     ),
     group=1
 )
 
-# --- Flask и Webhook ---
+# --- Flask-приложение и Webhook ---
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
@@ -212,11 +199,6 @@ def webhook():
     update = Update.de_json(data, bot)
     dispatcher.process_update(update)
     return "OK", 200
-
-# восстановили GET /ping для healthcheck
-@app.route('/ping', methods=['GET'])
-def ping():
-    return "pong", 200
 
 @app.route('/', methods=['GET'])
 def index():
