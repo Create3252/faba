@@ -56,7 +56,7 @@ TEST_SEND_CHATS = [
 # --- Права доступа ---
 ALLOWED_USER_IDS = {296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564}
 
-# --- Инициализация бота и диспетчера ---
+# --- Инициализация ---
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
@@ -66,8 +66,7 @@ def menu(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
         return update.message.reply_text("У вас нет прав.")
-    kb = [["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"],
-          ["Тестовая отправка"]]
+    kb = [["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"], ["Тестовая отправка"]]
     markup = ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=markup)
     context.user_data.clear()
@@ -118,7 +117,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
     if choice == "Назад":
         return menu(update, context)
 
-    update.message.reply_text("Неверный выбор, /menu")
+    update.message.reply_text("Неверный выбор — /menu")
     raise DispatcherHandlerStop
 
 dispatcher.add_handler(
@@ -134,17 +133,17 @@ def forward_message(update: Update, context: CallbackContext):
         return
 
     mid = msg.message_id
+    # не пересылаем маркеры
     if mid == context.user_data.get("marker_id"):
         return
 
-    # 1) Тестовая отправка
-    if context.user_data.get("pending_test"):
+    # Тестовая отправка?
+    if context.user_data.pop("pending_test", False):
         if mid <= context.user_data.get("test_marker", 0):
             return
         failures = []
         for cid in TEST_SEND_CHATS:
             try:
-                # ссылка? выключаем предпросмотр
                 if msg.text and msg.entities:
                     bot.send_message(
                         chat_id=cid,
@@ -154,20 +153,20 @@ def forward_message(update: Update, context: CallbackContext):
                     )
                 else:
                     bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=mid)
+                logging.info(f"[TEST] → {cid}")
             except Exception as e:
-                logging.error(f"[TEST] ошибка в {cid}: {e}")
+                logging.error(f"[TEST] error {cid}: {e}")
                 failures.append(cid)
-        reply = ("Не удалось в: " + ", ".join(map(str, failures))) if failures else "Тестовое сообщение отправлено."
+        reply = ("Ошибка в: " + ", ".join(map(str, failures))) if failures else "Тестовое сообщение отправлено."
         msg.reply_text(reply)
         msg.reply_text("Нажмите /menu для нового выбора.")
-        context.user_data.pop("pending_test", None)
         return
 
-    # 2) Основная рассылка
+    # Основная рассылка?
     if "selected_chats" in context.user_data:
         if mid <= context.user_data.get("send_marker", 0):
             return
-        chat_ids = context.user_data.pop("selected_chats")
+        chat_ids = context.user_data["selected_chats"]  # Оставляем флаг живым
         failures = []
         for cid in chat_ids:
             try:
@@ -180,8 +179,9 @@ def forward_message(update: Update, context: CallbackContext):
                     )
                 else:
                     bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=mid)
+                logging.info(f"[SEND] → {cid}")
             except Exception as e:
-                logging.error(f"[SEND] ошибка в {cid}: {e}")
+                logging.error(f"[SEND] error {cid}: {e}")
                 failures.append(cid)
         reply = ("Не отправлено в: " + ", ".join(map(str, failures))) if failures else "Сообщение доставлено во все чаты."
         msg.reply_text(reply)
@@ -190,8 +190,14 @@ def forward_message(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(
     MessageHandler(
-        Filters.chat_type.private &
-        (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document),
+        Filters.chat_type.private & (
+            Filters.text
+            | Filters.photo
+            | Filters.video
+            | Filters.video_note
+            | Filters.audio
+            | Filters.document
+        ),
         forward_message
     ),
     group=1
@@ -214,4 +220,5 @@ def index():
 if __name__ == "__main__":
     bot.delete_webhook(drop_pending_updates=True)
     bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
