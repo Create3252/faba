@@ -8,13 +8,13 @@ from telegram.ext import (
     MessageHandler,
     Filters,
     CallbackContext,
-    DispatcherHandlerStop,
+    DispatcherHandlerStop
 )
 from telegram.utils.request import Request
 
 # --- Логирование ---
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format="%((asctime)s - %(name)s - %(levelname)s - %(message)s)",
     level=logging.INFO
 )
 
@@ -45,7 +45,6 @@ ALL_CITIES = [
     {"name": "Донецк",        "link": "https://t.me/+nGkS5gfvvQxjNmRi", "chat_id": -1002328107804},
     {"name": "Хабаровск",     "link": "https://t.me/+SrnvRbMo3bA5NzVi", "chat_id": -1002480768813},
     {"name": "Челябинск",     "link": "https://t.me/+ZKXj5rmcmMw0MzQy", "chat_id": -1002374636424},
-    {"name": "Тула",          "link": "https://t.me/+ZCq3GsGagIQ1NzRi", "chat_id": -1002678281080},
 ]
 TEST_SEND_CHATS = [
     -1002596576819,  # Москва тест
@@ -55,12 +54,12 @@ TEST_SEND_CHATS = [
 # --- Права доступа ---
 ALLOWED_USER_IDS = {296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564}
 
-# --- Инициализация бота и диспетчера ---
+# --- Инициализация ---
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
-# --- Команда /menu ---
+# --- /menu команда ---
 def menu(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
@@ -68,27 +67,25 @@ def menu(update: Update, context: CallbackContext):
     kb = [["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"], ["Тестовая отправка"]]
     markup = ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=markup)
+    # Обнуляем состояние и ставим ожидание меню
     context.user_data.clear()
     context.user_data["pending_main_menu"] = True
 
 dispatcher.add_handler(CommandHandler("menu", menu))
 
-# --- Обработка меню ---
+# --- Обработка главного меню ---
 def handle_main_menu(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS or not context.user_data.get("pending_main_menu"):
         return
     choice = update.message.text.strip()
     context.user_data.pop("pending_main_menu", None)
-    context.user_data["marker_id"] = update.message.message_id
 
     if choice == "Список чатов ФАБА":
-        lines = ["Список чатов ФАБА:"] + [
-            f"<a href='{c['link']}'>{c['name']}</a>" for c in ALL_CITIES
-        ]
+        lines = [f"<a href=''{c['link']}'>'{c['name']}</a>" for c in ALL_CITIES]
         back = ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True, one_time_keyboard=True)
         update.message.reply_text(
-            "\n".join(lines),
+            "Список чатов ФАБА:\n" + "\n".join(lines),
             parse_mode="HTML",
             disable_web_page_preview=True,
             reply_markup=back
@@ -97,26 +94,27 @@ def handle_main_menu(update: Update, context: CallbackContext):
 
     if choice == "Отправить сообщение во все чаты ФАБА":
         context.user_data["selected_chats"] = [c["chat_id"] for c in ALL_CITIES]
-        context.user_data["send_marker"] = update.message.message_id
-        update.message.reply_text(
-            "Теперь отправьте ваше сообщение (текст или медиа).\nЧтобы отменить — /menu",
+        prompt = update.message.reply_text(
+            "Теперь отправьте ваше сообщение (текст или медиа). Чтобы отменить — /menu",
             disable_web_page_preview=True
         )
+        # Ставим маркер на ответ бота
+        context.user_data["send_marker"] = prompt.message_id
         raise DispatcherHandlerStop
 
     if choice == "Тестовая отправка":
         context.user_data["pending_test"] = True
-        context.user_data["test_marker"] = update.message.message_id
-        update.message.reply_text(
-            "Ввод тестового сообщения (текст или медиа).\nЧтобы отменить — /menu",
+        prompt = update.message.reply_text(
+            "Ввод тестового сообщения (текст или медиа). Чтобы отменить — /menu",
             disable_web_page_preview=True
         )
+        context.user_data["test_marker"] = prompt.message_id
         raise DispatcherHandlerStop
 
     if choice == "Назад":
         return menu(update, context)
 
-    update.message.reply_text("Неверный выбор, /menu")
+    update.message.reply_text("Неверный выбор, используйте /menu")
     raise DispatcherHandlerStop
 
 dispatcher.add_handler(
@@ -124,7 +122,7 @@ dispatcher.add_handler(
     group=0
 )
 
-# --- Пересылка текстов и медиа (включая voice и video_note) ---
+# --- Пересылка сообщений и медиа ---
 def forward_message(update: Update, context: CallbackContext):
     msg = update.message
     uid = msg.from_user.id
@@ -132,62 +130,35 @@ def forward_message(update: Update, context: CallbackContext):
         return
 
     mid = msg.message_id
-    # 1) пропускаем системный маркер меню
-    if mid == context.user_data.get("marker_id"):
-        return
+    send_marker = context.user_data.get("send_marker", 0)
+    logging.info(f"forward_message: mid={mid}, send_marker={send_marker}")
 
-    # 2) тестовая рассылка
-    if context.user_data.get("pending_test"):
-        if mid <= context.user_data.get("test_marker", 0):
+    # Тестовая отправка
+    if context.user_data.pop("pending_test", False):
+        test_marker = context.user_data.get("test_marker", 0)
+        if mid <= test_marker:
             return
         failures = []
         for cid in TEST_SEND_CHATS:
             try:
-                if msg.text and msg.entities:
-                    bot.send_message(
-                        chat_id=cid,
-                        text=msg.text,
-                        entities=msg.entities,
-                        disable_web_page_preview=True
-                    )
-                else:
-                    bot.copy_message(
-                        chat_id=cid,
-                        from_chat_id=msg.chat.id,
-                        message_id=mid
-                    )
-                logging.info(f"[TEST] → {cid}")
+                bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=mid)
             except Exception as e:
                 logging.error(f"[TEST] error {cid}: {e}")
                 failures.append(cid)
-        reply = "Не удалось в: " + ", ".join(map(str, failures)) if failures else "Тестовое сообщение отправлено."
+        reply = "Не удалось отправить в: " + ", ".join(map(str, failures)) if failures else "Тестовое сообщение отправлено."
         msg.reply_text(reply)
         msg.reply_text("Нажмите /menu для нового выбора.")
-        context.user_data.pop("pending_test", None)
         return
 
-    # 3) основная рассылка
+    # Основная рассылка
     if "selected_chats" in context.user_data:
-        if mid <= context.user_data.get("send_marker", 0):
+        if mid <= send_marker:
             return
         chat_ids = context.user_data.pop("selected_chats")
         failures = []
         for cid in chat_ids:
             try:
-                if msg.text and msg.entities:
-                    bot.send_message(
-                        chat_id=cid,
-                        text=msg.text,
-                        entities=msg.entities,
-                        disable_web_page_preview=True
-                    )
-                else:
-                    bot.copy_message(
-                        chat_id=cid,
-                        from_chat_id=msg.chat.id,
-                        message_id=mid
-                    )
-                logging.info(f"[SEND] → {cid}")
+                bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=mid)
             except Exception as e:
                 logging.error(f"[SEND] error {cid}: {e}")
                 failures.append(cid)
@@ -196,16 +167,11 @@ def forward_message(update: Update, context: CallbackContext):
         msg.reply_text("Нажмите /menu для нового выбора.")
         return
 
+# Регистрируем хендлер на тексты и медиа
 dispatcher.add_handler(
     MessageHandler(
         Filters.chat_type.private & (
-            Filters.text
-            | Filters.photo
-            | Filters.video
-            | Filters.audio
-            | Filters.document
-            | Filters.voice
-            | Filters.video_note
+            Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document
         ),
         forward_message
     ),
@@ -216,17 +182,17 @@ dispatcher.add_handler(
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
-def webhook():
+ def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, bot)
     dispatcher.process_update(update)
     return "OK", 200
 
 @app.route('/', methods=['GET'])
-def index():
+ def index():
     return "Bot is running", 200
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     bot.delete_webhook(drop_pending_updates=True)
     bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     port = int(os.environ.get("PORT", 5000))
