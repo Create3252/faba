@@ -9,7 +9,6 @@ from telegram.ext import (
     MessageHandler,
     Filters,
     CallbackContext,
-    DispatcherHandlerStop
 )
 from telegram.utils.request import Request
 
@@ -19,7 +18,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# --- ПОЛУЧАЕМ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ---
+# --- ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 if not BOT_TOKEN or not WEBHOOK_URL:
@@ -97,7 +96,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
             disable_web_page_preview=True,
             reply_markup=back
         )
-        raise DispatcherHandlerStop
+        return
 
     if choice == "Отправить сообщение во все чаты ФАБА":
         context.user_data["selected_chats"] = [c["chat_id"] for c in ALL_CITIES]
@@ -106,7 +105,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
             "Нажмите /menu для отмены.",
             disable_web_page_preview=True
         )
-        raise DispatcherHandlerStop
+        return
 
     if choice == "Тестовая отправка":
         context.user_data["pending_test"] = True
@@ -115,13 +114,12 @@ def handle_main_menu(update: Update, context: CallbackContext):
             "Нажмите /menu для отмены.",
             disable_web_page_preview=True
         )
-        raise DispatcherHandlerStop
+        return
 
     if choice == "Назад":
         return menu(update, context)
 
     update.message.reply_text("Неверный выбор. /menu")
-    raise DispatcherHandlerStop
 
 dispatcher.add_handler(
     MessageHandler(Filters.chat_type.private & Filters.text, handle_main_menu),
@@ -140,11 +138,7 @@ def forward_message(update: Update, context: CallbackContext):
         failures = []
         for cid in TEST_SEND_CHATS:
             try:
-                bot.copy_message(
-                    chat_id=cid,
-                    from_chat_id=msg.chat.id,
-                    message_id=msg.message_id
-                )
+                bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=msg.message_id)
             except Exception:
                 failures.append(cid)
         if failures:
@@ -155,35 +149,30 @@ def forward_message(update: Update, context: CallbackContext):
         return
 
     # 2) Основная рассылка
-    chat_ids = context.user_data.pop("selected_chats", None)
+    chat_ids = context.user_data.get("selected_chats")
     if chat_ids:
         failures = []
         for cid in chat_ids:
             try:
-                bot.copy_message(
-                    chat_id=cid,
-                    from_chat_id=msg.chat.id,
-                    message_id=msg.message_id
-                )
+                bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=msg.message_id)
             except Exception:
                 failures.append(cid)
+
         if failures:
             update.message.reply_text(f"Не отправилось в: {', '.join(map(str, failures))}.")
         else:
             update.message.reply_text("Сообщение доставлено во все чаты.")
-        update.message.reply_text("Нажмите /menu для нового выбора.")
+
+        # Если это одиночное сообщение, очищаем состояние и даем подсказку
+        if not msg.media_group_id:
+            context.user_data.pop("selected_chats", None)
+            update.message.reply_text("Нажмите /menu для нового выбора.")
         return
 
 dispatcher.add_handler(
     MessageHandler(
         Filters.chat_type.private & (
-            Filters.text
-            | Filters.photo
-            | Filters.video
-            | Filters.audio
-            | Filters.document
-            | Filters.voice       # ← добавлено
-            | Filters.video_note  # ← добавлено
+            Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document
         ),
         forward_message
     ),
