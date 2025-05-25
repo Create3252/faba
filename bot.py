@@ -2,16 +2,10 @@ import os
 import logging
 from flask import Flask, request
 from telegram import Update, Bot, ReplyKeyboardMarkup
-from telegram.ext import (
-    Dispatcher,
-    CommandHandler,
-    MessageHandler,
-    Filters,
-    CallbackContext,
-    DispatcherHandlerStop,
-)
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
 from telegram.utils.request import Request
 
+# --- Логирование ---
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -32,86 +26,58 @@ req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
-def menu(update: Update, context: CallbackContext):
+# --- Flask-приложение и webhook ---
+app = Flask(__name__)
+
+# --- Сборщик рассылки ---
+def add_to_broadcast(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
-        return update.message.reply_text("У вас нет прав.")
-    kb = [["Тестовая отправка"]]
-    markup = ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True)
-    update.message.reply_text("Выберите действие:", reply_markup=markup)
-    context.user_data.clear()
-    context.user_data["pending_main_menu"] = True
-
-dispatcher.add_handler(CommandHandler("menu", menu))
-
-def handle_main_menu(update: Update, context: CallbackContext):
-    uid = update.message.from_user.id
-    if uid not in ALLOWED_USER_IDS or not context.user_data.get("pending_main_menu"):
         return
-    choice = update.message.text.strip()
-    context.user_data.pop("pending_main_menu", None)
-    if choice == "Тестовая отправка":
-        context.user_data["bulk_messages"] = []
-        context.user_data["pending_bulk"] = True
-        update.message.reply_text(
-            "Отправь сообщения (текст, фото, кружки и т.д.) для рассылки.\nКогда закончишь — напиши /sendall."
-        )
-        raise DispatcherHandlerStop
-
-dispatcher.add_handler(
-    MessageHandler(Filters.chat_type.private & Filters.text, handle_main_menu),
-    group=0
-)
-
-def collect_bulk(update: Update, context: CallbackContext):
-    if not context.user_data.get("pending_bulk"):
-        return
-    # Копируем всё, что пришло в bulk_messages
-    context.user_data.setdefault("bulk_messages", []).append(update.message.message_id)
-    update.message.reply_text(
-        "Сообщение добавлено к рассылке. Когда закончите — напишите /sendall."
-    )
+    queue = context.user_data.setdefault("pending_broadcast", [])
+    # Сохраняем все сообщения как объекты Message
+    queue.append(update.message)
+    update.message.reply_text("Сообщение добавлено к рассылке. Когда закончите — напишите /sendall.")
 
 dispatcher.add_handler(
     MessageHandler(
-        Filters.chat_type.private &
-        (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document | Filters.video_note),
-        collect_bulk
+        Filters.chat_type.private & (
+            Filters.text | Filters.photo | Filters.video | Filters.video_note | Filters.audio | Filters.document
+        ),
+        add_to_broadcast
     ),
-    group=1
+    group=0
 )
 
+# --- Команда sendall ---
 def sendall(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
         return
-    msgs = context.user_data.get("bulk_messages", [])
-    if not msgs:
-        update.message.reply_text("Нет сообщений для рассылки.")
+    queue = context.user_data.get("pending_broadcast", [])
+    if not queue:
+        update.message.reply_text("Нет сообщений для рассылки. Сначала отправьте сообщения.")
         return
-    failed = []
-    for mid in msgs:
+    failures = []
+    for msg in queue:
         for cid in TEST_SEND_CHATS:
             try:
+                # Универсально пересылаем всё через copy_message
                 bot.copy_message(
                     chat_id=cid,
-                    from_chat_id=update.message.chat.id,
-                    message_id=mid
+                    from_chat_id=msg.chat.id,
+                    message_id=msg.message_id
                 )
             except Exception as e:
-                failed.append(cid)
-                logging.error(f"Ошибка пересылки: {e}")
-    if failed:
-        update.message.reply_text("Не все сообщения ушли: " + ', '.join(map(str, failed)))
+                failures.append(cid)
+                logging.error(f"Не удалось отправить сообщение в {cid}: {e}")
+    context.user_data["pending_broadcast"] = []
+    if failures:
+        update.message.reply_text(f"Не отправлено в: {', '.join(map(str, failures))}")
     else:
-        update.message.reply_text("Рассылка завершена.")
-    context.user_data["bulk_messages"] = []
-    context.user_data["pending_bulk"] = False
+        update.message.reply_text("Все сообщения отправлены во все тестовые чаты.")
 
 dispatcher.add_handler(CommandHandler("sendall", sendall))
-
-# --- Flask ---
-app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
