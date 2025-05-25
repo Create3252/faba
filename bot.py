@@ -81,7 +81,6 @@ def handle_main_menu(update: Update, context: CallbackContext):
         return
     choice = update.message.text.strip()
     context.user_data.pop("pending_main_menu", None)
-    # Чтобы не пересылать само меню
     context.user_data["marker_id"] = update.message.message_id
 
     if choice == "Список чатов ФАБА":
@@ -124,7 +123,7 @@ dispatcher.add_handler(
     group=0
 )
 
-# --- Пересылка сообщений и медиа ---
+# --- Пересылка текстов, фото, видео, аудио, документов и video_note ---
 def forward_message(update: Update, context: CallbackContext):
     msg = update.message
     uid = msg.from_user.id
@@ -132,7 +131,6 @@ def forward_message(update: Update, context: CallbackContext):
         return
 
     mid = msg.message_id
-    # не пересылаем сам маркер
     if mid == context.user_data.get("marker_id"):
         return
 
@@ -143,13 +141,10 @@ def forward_message(update: Update, context: CallbackContext):
         failures = []
         for cid in TEST_SEND_CHATS:
             try:
-                if msg.text and msg.entities:
-                    bot.send_message(
-                        chat_id=cid,
-                        text=msg.text,
-                        entities=msg.entities,
-                        disable_web_page_preview=True
-                    )
+                if msg.video_note:
+                    bot.send_video_note(chat_id=cid, video_note=msg.video_note.file_id)
+                elif msg.text and msg.entities:
+                    bot.send_message(chat_id=cid, text=msg.text, entities=msg.entities, disable_web_page_preview=True)
                 else:
                     bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=mid)
             except Exception as e:
@@ -160,7 +155,7 @@ def forward_message(update: Update, context: CallbackContext):
         msg.reply_text("Нажмите /menu для нового выбора.")
         return
 
-    # 2) Основная рассылка — **НЕ удаляем** selected_chats, чтобы ловить все сообщения
+    # 2) Основная рассылка (не сбрасываем selected_chats до /menu)
     if "selected_chats" in context.user_data:
         if mid <= context.user_data.get("send_marker", 0):
             return
@@ -168,13 +163,10 @@ def forward_message(update: Update, context: CallbackContext):
         failures = []
         for cid in chat_ids:
             try:
-                if msg.text and msg.entities:
-                    bot.send_message(
-                        chat_id=cid,
-                        text=msg.text,
-                        entities=msg.entities,
-                        disable_web_page_preview=True
-                    )
+                if msg.video_note:
+                    bot.send_video_note(chat_id=cid, video_note=msg.video_note.file_id)
+                elif msg.text and msg.entities:
+                    bot.send_message(chat_id=cid, text=msg.text, entities=msg.entities, disable_web_page_preview=True)
                 else:
                     bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=mid)
             except Exception as e:
@@ -183,13 +175,12 @@ def forward_message(update: Update, context: CallbackContext):
         reply = "Не удалось в: " + ", ".join(map(str, failures)) if failures else "Сообщение доставлено во все чаты."
         msg.reply_text(reply)
         msg.reply_text("Нажмите /menu для нового выбора.")
-        # **не очищаем** context.user_data["selected_chats"]
         return
 
 dispatcher.add_handler(
     MessageHandler(
         Filters.chat_type.private &
-        (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document),
+        (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document | Filters.video_note),
         forward_message
     ),
     group=1
@@ -212,5 +203,4 @@ def index():
 if __name__ == "__main__":
     bot.delete_webhook(drop_pending_updates=True)
     bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
