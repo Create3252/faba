@@ -22,16 +22,11 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 if not BOT_TOKEN or not WEBHOOK_URL:
     raise RuntimeError("Не указан BOT_TOKEN или WEBHOOK_URL")
 
-# Тестовые чаты
 TEST_SEND_CHATS = [
-    -1002596576819,  # Москва тест
-    -1002584369534   # Тюмень тест
+    -1002596576819,
+    -1002584369534
 ]
-
 ALLOWED_USER_IDS = {296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564}
-
-# Очередь сообщений пользователя для рассылки
-user_message_queues = {}
 
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
@@ -41,7 +36,7 @@ def menu(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
         return update.message.reply_text("У вас нет прав.")
-    kb = [["Тестовая рассылка"], ["Очистить очередь"]]
+    kb = [["Тестовая отправка"]]
     markup = ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=markup)
     context.user_data.clear()
@@ -55,40 +50,33 @@ def handle_main_menu(update: Update, context: CallbackContext):
         return
     choice = update.message.text.strip()
     context.user_data.pop("pending_main_menu", None)
-    if choice == "Тестовая рассылка":
-        context.user_data["collect_broadcast"] = True
-        user_message_queues[uid] = []
+    if choice == "Тестовая отправка":
+        context.user_data["bulk_messages"] = []
+        context.user_data["pending_bulk"] = True
         update.message.reply_text(
-            "Отправь одно или несколько сообщений (текст, медиа, кружки и т.д.).\nКогда закончишь — напиши /sendall",
+            "Отправь сообщения (текст, фото, кружки и т.д.) для рассылки.\nКогда закончишь — напиши /sendall."
         )
         raise DispatcherHandlerStop
-    if choice == "Очистить очередь":
-        user_message_queues[uid] = []
-        update.message.reply_text("Очередь очищена.")
-        raise DispatcherHandlerStop
-
-    update.message.reply_text("Неверный выбор. /menu")
-    raise DispatcherHandlerStop
 
 dispatcher.add_handler(
     MessageHandler(Filters.chat_type.private & Filters.text, handle_main_menu),
     group=0
 )
 
-def collect_messages(update: Update, context: CallbackContext):
-    uid = update.message.from_user.id
-    if context.user_data.get("collect_broadcast"):
-        if uid not in user_message_queues:
-            user_message_queues[uid] = []
-        user_message_queues[uid].append(update.message)
-        update.message.reply_text("Сообщение добавлено к рассылке. Когда закончите — напишите /sendall.")
-        raise DispatcherHandlerStop
+def collect_bulk(update: Update, context: CallbackContext):
+    if not context.user_data.get("pending_bulk"):
+        return
+    # Копируем всё, что пришло в bulk_messages
+    context.user_data.setdefault("bulk_messages", []).append(update.message.message_id)
+    update.message.reply_text(
+        "Сообщение добавлено к рассылке. Когда закончите — напишите /sendall."
+    )
 
 dispatcher.add_handler(
     MessageHandler(
         Filters.chat_type.private &
         (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document | Filters.video_note),
-        collect_messages
+        collect_bulk
     ),
     group=1
 )
@@ -97,41 +85,32 @@ def sendall(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
         return
-    queue = user_message_queues.get(uid, [])
-    if not queue:
-        update.message.reply_text("Нет сообщений для отправки.")
+    msgs = context.user_data.get("bulk_messages", [])
+    if not msgs:
+        update.message.reply_text("Нет сообщений для рассылки.")
         return
-
-    failures = []
-    for msg in queue:
-        for chat_id in TEST_SEND_CHATS:
+    failed = []
+    for mid in msgs:
+        for cid in TEST_SEND_CHATS:
             try:
-                if msg.text and not (msg.photo or msg.video or msg.audio or msg.document or msg.video_note):
-                    bot.send_message(chat_id=chat_id, text=msg.text, entities=msg.entities, disable_web_page_preview=True)
-                elif msg.photo:
-                    bot.send_photo(chat_id=chat_id, photo=msg.photo[-1].file_id, caption=msg.caption, caption_entities=msg.caption_entities)
-                elif msg.video:
-                    bot.send_video(chat_id=chat_id, video=msg.video.file_id, caption=msg.caption, caption_entities=msg.caption_entities)
-                elif msg.audio:
-                    bot.send_audio(chat_id=chat_id, audio=msg.audio.file_id, caption=msg.caption, caption_entities=msg.caption_entities)
-                elif msg.document:
-                    bot.send_document(chat_id=chat_id, document=msg.document.file_id, caption=msg.caption, caption_entities=msg.caption_entities)
-                elif msg.video_note:
-                    bot.send_video_note(chat_id=chat_id, video_note=msg.video_note.file_id)
-                else:
-                    bot.copy_message(chat_id=chat_id, from_chat_id=msg.chat.id, message_id=msg.message_id)
+                bot.copy_message(
+                    chat_id=cid,
+                    from_chat_id=update.message.chat.id,
+                    message_id=mid
+                )
             except Exception as e:
-                logging.error(f"Ошибка отправки: {e}")
-                failures.append(chat_id)
-    user_message_queues[uid] = []
-    context.user_data["collect_broadcast"] = False
-    if failures:
-        update.message.reply_text(f"Ошибка в: {', '.join(map(str, failures))}")
+                failed.append(cid)
+                logging.error(f"Ошибка пересылки: {e}")
+    if failed:
+        update.message.reply_text("Не все сообщения ушли: " + ', '.join(map(str, failed)))
     else:
-        update.message.reply_text("Все сообщения отправлены в тестовые чаты.")
+        update.message.reply_text("Рассылка завершена.")
+    context.user_data["bulk_messages"] = []
+    context.user_data["pending_bulk"] = False
 
 dispatcher.add_handler(CommandHandler("sendall", sendall))
 
+# --- Flask ---
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
