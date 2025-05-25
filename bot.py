@@ -1,216 +1,70 @@
 import os
 import logging
 from flask import Flask, request
-from telegram import Update, Bot, ReplyKeyboardMarkup
-from telegram.ext import (
-    Dispatcher,
-    CommandHandler,
-    MessageHandler,
-    Filters,
-    CallbackContext,
-    DispatcherHandlerStop
-)
-from telegram.utils.request import Request
+from telegram import Update, Bot
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
 
-# --- НАСТРОЙКА ЛОГОВ ---
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+logging.basicConfig(level=logging.INFO)
 
-# --- ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-if not BOT_TOKEN or not WEBHOOK_URL:
-    raise RuntimeError("Не указан BOT_TOKEN или WEBHOOK_URL")
+ALL_CITIES = [{"name": "Тест", "chat_id": -1001234567890}]
+ALLOWED_USER_IDS = {296920330}
 
-# --- СПИСКИ ЧАТОВ ---
-ALL_CITIES = [
-    {"name": "Тюмень",        "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
-    {"name": "Новосибирск",   "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
-    {"name": "Сахалин",       "link": "https://t.me/+FzQ_jEYX8AtkMzNi", "chat_id": -1002265902434},
-    {"name": "Красноярск",    "link": "https://t.me/+lMTDVPF0syRiYzdi", "chat_id": -1002311750873},
-    {"name": "Санкт-Петербург","link": "https://t.me/+EWj9jKhAvV82NWIy","chat_id": -1002152780476},
-    {"name": "Москва",        "link": "https://t.me/+qokFNNnfhQdiYjQy", "chat_id": -1002182445604},
-    {"name": "Екатеринбург",  "link": "https://t.me/+J2ESyZJyOAk2YzYy", "chat_id": -1002392430562},
-    {"name": "Иркутск",       "link": "https://t.me/+TAoCnfoePUJmNzhi", "chat_id": -1002255012184},
-    {"name": "Оренбург",      "link": "https://t.me/+-Y_1N0HnePUxZjZi", "chat_id": -1002316600732},
-    {"name": "Крым",          "link": "https://t.me/+uC5IEnQWsmFhM2Ni", "chat_id": -1002506541314},
-    {"name": "Чита",          "link": "https://t.me/+yMeI0CjltLphZWYy", "chat_id": -1002563254789},
-    {"name": "Волгоград",     "link": "https://t.me/+ODxw0mfq73M4NGFi", "chat_id": -1002562049204},
-    {"name": "Краснодар",     "link": "https://t.me/+a9_1fWyGvAc1NzZi", "chat_id": -1002297851122},
-    {"name": "Пермь",         "link": "https://t.me/+lgM27u0cnp8wNjAy", "chat_id": -1002298810010},
-    {"name": "Самара",        "link": "https://t.me/+SLCllcYKCUFlNjk6", "chat_id": -1002589409715},
-    {"name": "Владивосток",   "link": "https://t.me/+Dpb3ozk_4Dc5OTYy", "chat_id": -1002438533236},
-    {"name": "Донецк",        "link": "https://t.me/+nGkS5gfvvQxjNmRi", "chat_id": -1002328107804},
-    {"name": "Хабаровск",     "link": "https://t.me/+SrnvRbMo3bA5NzVi", "chat_id": -1002480768813},
-    {"name": "Челябинск",     "link": "https://t.me/+ZKXj5rmcmMw0MzQy", "chat_id": -1002374636424},
-    {"name": "Тула",          "link": "https://t.me/+ZCq3GsGagIQ1NzRi", "chat_id": -1002678281080},
-]
-TEST_SEND_CHATS = [
-    -1002596576819,
-    -1002584369534
-]
-ALLOWED_USER_IDS = {296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564}
+req = None
+bot = None
+dispatcher = None
 
-# --- ИНИЦИАЛИЗАЦИЯ ---
-req = Request(connect_timeout=20, read_timeout=20)
-bot = Bot(token=BOT_TOKEN, request=req)
-dispatcher = Dispatcher(bot, None, workers=4)
+user_queues = {}
 
-# --- /menu команда ---
-def menu(update: Update, context: CallbackContext):
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text("Бот готов. Пиши сообщения для рассылки. /sendall чтобы разослать.")
+
+def add_to_queue(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
-        return update.message.reply_text("У вас нет прав.")
-    kb = [["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"], ["Тестовая отправка"]]
-    markup = ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True)
-    update.message.reply_text("Выберите действие:", reply_markup=markup)
-    context.user_data.clear()
-    context.user_data["pending_main_menu"] = True
-
-dispatcher.add_handler(CommandHandler("menu", menu))
-
-# --- обработка меню ---
-def handle_main_menu(update: Update, context: CallbackContext):
-    uid = update.message.from_user.id
-    if uid not in ALLOWED_USER_IDS or not context.user_data.get("pending_main_menu"):
         return
-    choice = update.message.text.strip()
-    context.user_data.pop("pending_main_menu", None)
-    context.user_data["marker_id"] = update.message.message_id
+    q = user_queues.setdefault(uid, [])
+    q.append(update.message)
+    update.message.reply_text("Сообщение добавлено к рассылке. Когда закончите — напишите /sendall.")
 
-    if choice == "Список чатов ФАБА":
-        lines = ["Список чатов ФАБА:"] + [
-            f"<a href='{c['link']}'>{c['name']}</a>" for c in ALL_CITIES
-        ]
-        back = ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True, one_time_keyboard=True)
-        update.message.reply_text(
-            "\n".join(lines),
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            reply_markup=back
-        )
-        raise DispatcherHandlerStop
-
-    if choice == "Отправить сообщение во все чаты ФАБА":
-        context.user_data["selected_chats"] = [c["chat_id"] for c in ALL_CITIES]
-        context.user_data["pending_messages"] = []
-        update.message.reply_text(
-            "Теперь отправьте ОДНО или НЕСКОЛЬКО сообщений (текст, фото, видео, кружки и т.д.).\n"
-            "Когда все отправите, напишите /sendall.\n"
-            "Чтобы отменить — /menu",
-            disable_web_page_preview=True
-        )
-        raise DispatcherHandlerStop
-
-    if choice == "Тестовая отправка":
-        context.user_data["pending_test"] = True
-        context.user_data["pending_messages"] = []
-        update.message.reply_text(
-            "Ввод тестового сообщения (текст, фото, кружки и т.д.).\n"
-            "Когда все отправите — напишите /sendall.\n"
-            "Чтобы отменить — /menu",
-            disable_web_page_preview=True
-        )
-        raise DispatcherHandlerStop
-
-    if choice == "Назад":
-        return menu(update, context)
-
-    update.message.reply_text("Неверный выбор, /menu")
-    raise DispatcherHandlerStop
-
-dispatcher.add_handler(
-    MessageHandler(Filters.chat_type.private & Filters.text, handle_main_menu),
-    group=0
-)
-
-# --- сбор сообщений для отправки ---
-def collect_messages(update: Update, context: CallbackContext):
-    msg = update.message
-    uid = msg.from_user.id
-    if uid not in ALLOWED_USER_IDS:
-        return
-    if "selected_chats" in context.user_data or context.user_data.get("pending_test"):
-        # Не добавляем в коллекцию команду /sendall и системные сообщения меню
-        if msg.text and msg.text.startswith("/sendall"):
-            return
-        if msg.message_id == context.user_data.get("marker_id"):
-            return
-        context.user_data.setdefault("pending_messages", []).append(msg)
-        msg.reply_text("Сообщение добавлено к рассылке. Когда закончите — напишите /sendall.")
-
-dispatcher.add_handler(
-    MessageHandler(
-        Filters.chat_type.private & (
-            Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document | Filters.video_note
-        ),
-        collect_messages
-    ),
-    group=1
-)
-
-# --- отправка всех накопленных сообщений ---
 def sendall(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
-        return update.message.reply_text("У вас нет прав.")
-    msgs = context.user_data.pop("pending_messages", [])
-    if context.user_data.get("pending_test"):
-        chat_ids = TEST_SEND_CHATS
-        context.user_data.pop("pending_test", None)
-    else:
-        chat_ids = context.user_data.pop("selected_chats", [])
-    if not msgs or not chat_ids:
-        update.message.reply_text("Нет сообщений или чатов для рассылки.")
         return
-    failures = []
-    for msg in msgs:
-        for cid in chat_ids:
+    queue = user_queues.get(uid, [])
+    errors = []
+    for msg in queue:
+        for city in ALL_CITIES:
             try:
-                if msg.video_note:
-                    bot.send_video_note(chat_id=cid, video_note=msg.video_note.file_id)
-                elif msg.photo:
-                    bot.send_photo(chat_id=cid, photo=msg.photo[-1].file_id, caption=msg.caption or None)
-                elif msg.video:
-                    bot.send_video(chat_id=cid, video=msg.video.file_id, caption=msg.caption or None)
-                elif msg.audio:
-                    bot.send_audio(chat_id=cid, audio=msg.audio.file_id, caption=msg.caption or None)
-                elif msg.document:
-                    bot.send_document(chat_id=cid, document=msg.document.file_id, caption=msg.caption or None)
-                elif msg.text and msg.entities:
-                    bot.send_message(chat_id=cid, text=msg.text, entities=msg.entities, disable_web_page_preview=True)
-                elif msg.text:
-                    bot.send_message(chat_id=cid, text=msg.text, disable_web_page_preview=True)
-                else:
-                    bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=msg.message_id)
+                bot.copy_message(city["chat_id"], msg.chat.id, msg.message_id)
             except Exception as e:
-                logging.error(f"[SENDALL] error to {cid}: {e}")
-                failures.append(cid)
-    if failures:
-        update.message.reply_text("Не отправилось в: " + ", ".join(map(str, failures)))
-    else:
-        update.message.reply_text("Вся рассылка завершена!")
-    update.message.reply_text("Нажмите /menu для нового выбора.")
+                logging.error(f"Ошибка отправки: {e}")
+                errors.append(city["name"])
+    user_queues[uid] = []
+    update.message.reply_text("Рассылка завершена." if not errors else f"Ошибки: {errors}")
 
-dispatcher.add_handler(CommandHandler("sendall", sendall))
-
-# --- Flask и Webhook ---
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, bot)
+    update = Update.de_json(request.get_json(force=True), bot)
     dispatcher.process_update(update)
-    return "OK", 200
+    return "OK"
 
-@app.route('/', methods=['GET'])
-def index():
-    return "Bot is running", 200
+def setup():
+    global req, bot, dispatcher
+    from telegram.utils.request import Request
+    req = Request()
+    bot = Bot(token=BOT_TOKEN, request=req)
+    dispatcher = Dispatcher(bot, None, workers=4)
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("sendall", sendall))
+    dispatcher.add_handler(MessageHandler(Filters.chat_type.private, add_to_queue))
 
-if __name__ == "__main__":
+setup()
+
+if __name__ == '__main__':
     bot.delete_webhook(drop_pending_updates=True)
     bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     port = int(os.environ.get("PORT", 5000))
