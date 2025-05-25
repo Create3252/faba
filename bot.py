@@ -25,7 +25,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 if not BOT_TOKEN or not WEBHOOK_URL:
     raise RuntimeError("Не указан BOT_TOKEN или WEBHOOK_URL")
 
-# --- Список городов и тестовых чатов ---
+# --- Списки чатов ---
 ALL_CITIES = [
     {"name": "Тюмень",        "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
     {"name": "Новосибирск",   "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
@@ -63,21 +63,23 @@ req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
-# --- /menu ---
+
+# --- /menu команда ---
 def menu(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
         return update.message.reply_text("У вас нет прав.")
-    keyboard = [
+    kb = [
         ["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"],
         ["Тестовая отправка"]
     ]
-    markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    markup = ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=markup)
     context.user_data.clear()
     context.user_data["pending_main_menu"] = True
 
 dispatcher.add_handler(CommandHandler("menu", menu))
+
 
 # --- Обработка меню ---
 def handle_main_menu(update: Update, context: CallbackContext):
@@ -130,7 +132,8 @@ dispatcher.add_handler(
     group=0
 )
 
-# --- Пересылка сообщений ---
+
+# --- Пересылка любых сообщений, включая video_notes ---
 def forward_message(update: Update, context: CallbackContext):
     msg = update.message
     uid = msg.from_user.id
@@ -138,10 +141,11 @@ def forward_message(update: Update, context: CallbackContext):
         return
 
     mid = msg.message_id
+    # не пересылаем метки меню
     if mid == context.user_data.get("marker_id"):
         return
 
-    # Тестовая отправка
+    # 1) Тестовая отправка?
     if context.user_data.pop("pending_test", False):
         if mid <= context.user_data.get("test_marker", 0):
             return
@@ -149,14 +153,14 @@ def forward_message(update: Update, context: CallbackContext):
         for cid in TEST_SEND_CHATS:
             try:
                 bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=mid)
-            except:
+            except Exception:
                 failures.append(cid)
         reply = failures and f"Не удалось в: {', '.join(map(str, failures))}" or "Тестовое сообщение отправлено."
         msg.reply_text(reply)
         msg.reply_text("Нажмите /menu для нового выбора.")
         return
 
-    # Основная рассылка
+    # 2) Основная рассылка?
     if "selected_chats" in context.user_data:
         if mid <= context.user_data.get("send_marker", 0):
             return
@@ -165,7 +169,7 @@ def forward_message(update: Update, context: CallbackContext):
         for cid in chat_ids:
             try:
                 bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=mid)
-            except:
+            except Exception:
                 failures.append(cid)
         reply = failures and f"Не отправлено в: {', '.join(map(str, failures))}" or "Сообщение доставлено во все чаты."
         msg.reply_text(reply)
@@ -175,13 +179,15 @@ def forward_message(update: Update, context: CallbackContext):
 dispatcher.add_handler(
     MessageHandler(
         Filters.chat_type.private &
-        (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document),
+        # добавили Filters.video_note
+        (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document | Filters.video_note),
         forward_message
     ),
     group=1
 )
 
-# --- Flask + Webhook ---
+
+# --- Flask + Webhook + /ping ---
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
