@@ -34,19 +34,19 @@ ALL_CITIES = [
     {"name": "Санкт-Петербург","link": "https://t.me/+EWj9jKhAvV82NWIy","chat_id": -1002152780476},
     {"name": "Москва",        "link": "https://t.me/+qokFNNnfhQdiYjQy", "chat_id": -1002182445604},
     {"name": "Екатеринбург",  "link": "https://t.me/+J2ESyZJyOAk2YzYy", "chat_id": -1002392430562},
-    {"name": "Иркутск",       "link": "https://t.me/+TAoCnfoePUjmNzhi", "chat_id": -1002255012184},
+    {"name": "Иркутск",       "link": "https://t.me/+TAoCnfoePUJmNzhi", "chat_id": -1002255012184},
     {"name": "Оренбург",      "link": "https://t.me/+-Y_1N0HnePUxZjZi", "chat_id": -1002316600732},
-    {"name": "Крым",          "link": "https://t.me/+uC5IEnQWsmFhM2Ni", "chat_id": -1002506541314},
-    {"name": "Чита",          "link": "https://t.me/+yMeI0CjltLphZWYy", "chat_id": -1002563254789},
-    {"name": "Волгоград",     "link": "https://t.me/+ODxw0mfq73M4NGFi", "chat_id": -1002562049204},
-    {"name": "Краснодар",     "link": "https://t.me/+a9_1fWyGvAc1NzZi", "chat_id": -1002297851122},
-    {"name": "Пермь",         "link": "https://t.me/+lgM27u0cnp8wNjAy", "chat_id": -1002298810010},
-    {"name": "Самара",        "link": "https://t.me/+SLCllcYKCUFlNjk6", "chat_id": -1002589409715},
-    {"name": "Владивосток",   "link": "https://t.me/+Dpb3ozk_4Dc5OTYy", "chat_id": -1002438533236},
-    {"name": "Донецк",        "link": "https://t.me/+nGkS5gfvvQxjNmRi", "chat_id": -1002328107804},
-    {"name": "Хабаровск",     "link": "https://t.me/+SrnvRbMo3bA5NzVi", "chat_id": -1002480768813},
-    {"name": "Челябинск",     "link": "https://t.me/+ZKXj5rmcmMw0MzQy", "chat_id": -1002374636424},
-    {"name": "Тула",          "link": "https://t.me/+ZCq3GsGagIQ1NzRi", "chat_id": -1002678281080},
+    {"name": "Крым",          "link": "https://t.me/+uC5IEnQWsmFhM2Ni",  "chat_id": -1002506541314},
+    {"name": "Чита",          "link": "https://t.me/+yMeI0CjltLphZWYy",  "chat_id": -1002563254789},
+    {"name": "Волгоград",     "link": "https://t.me/+ODxw0mfq73M4NGFi",  "chat_id": -1002562049204},
+    {"name": "Краснодар",     "link": "https://t.me/+a9_1fWyGvAc1NzZi",  "chat_id": -1002297851122},
+    {"name": "Пермь",         "link": "https://t.me/+lgM27u0cnp8wNjAy",  "chat_id": -1002298810010},
+    {"name": "Самара",        "link": "https://t.me/+SLCllcYKCUFlNjk6",  "chat_id": -1002589409715},
+    {"name": "Владивосток",   "link": "https://t.me/+Dpb3ozk_4Dc5OTYy",  "chat_id": -1002438533236},
+    {"name": "Донецк",        "link": "https://t.me/+nGkS5gfvvQxjNmRi",  "chat_id": -1002328107804},
+    {"name": "Хабаровск",     "link": "https://t.me/+SrnvRbMo3bA5NzVi",  "chat_id": -1002480768813},
+    {"name": "Челябинск",     "link": "https://t.me/+ZKXj5rmcmMw0MzQy",  "chat_id": -1002374636424},
+    {"name": "Тула",          "link": "https://t.me/+ZCq3GsGagIQ1NzRi",  "chat_id": -1002678281080},
 ]
 TEST_SEND_CHATS = [
     -1002596576819,  # Москва тест
@@ -54,15 +54,12 @@ TEST_SEND_CHATS = [
 ]
 
 # --- Права доступа ---
-ALLOWED_USER_IDS = {
-    296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564
-}
+ALLOWED_USER_IDS = {296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564}
 
-# --- Инициализация бота и диспетчера ---
+# --- Инициализация ---
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
-
 
 # --- /menu команда ---
 def menu(update: Update, context: CallbackContext):
@@ -80,7 +77,6 @@ def menu(update: Update, context: CallbackContext):
 
 dispatcher.add_handler(CommandHandler("menu", menu))
 
-
 # --- Обработка меню ---
 def handle_main_menu(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
@@ -88,6 +84,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
         return
     choice = update.message.text.strip()
     context.user_data.pop("pending_main_menu", None)
+    # Маркеры, чтобы не форвардить лишние
     context.user_data["marker_id"] = update.message.message_id
 
     if choice == "Список чатов ФАБА":
@@ -107,7 +104,8 @@ def handle_main_menu(update: Update, context: CallbackContext):
         context.user_data["selected_chats"] = [c["chat_id"] for c in ALL_CITIES]
         context.user_data["send_marker"] = update.message.message_id
         update.message.reply_text(
-            "Теперь отправьте ваше сообщение.\nЧтобы отменить — /menu",
+            "Теперь отправьте ваше сообщение (текст или медиа).\n"
+            "Чтобы отменить — /menu",
             disable_web_page_preview=True
         )
         raise DispatcherHandlerStop
@@ -116,7 +114,8 @@ def handle_main_menu(update: Update, context: CallbackContext):
         context.user_data["pending_test"] = True
         context.user_data["test_marker"] = update.message.message_id
         update.message.reply_text(
-            "Введите тестовое сообщение.\nЧтобы отменить — /menu",
+            "Ввод тестового сообщения (текст или медиа).\n"
+            "Чтобы отменить — /menu",
             disable_web_page_preview=True
         )
         raise DispatcherHandlerStop
@@ -124,7 +123,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
     if choice == "Назад":
         return menu(update, context)
 
-    update.message.reply_text("Неверный выбор. /menu")
+    update.message.reply_text("Неверный выбор, /menu")
     raise DispatcherHandlerStop
 
 dispatcher.add_handler(
@@ -132,8 +131,14 @@ dispatcher.add_handler(
     group=0
 )
 
+# --- Команда /done для выхода из режима рассылки ---
+def done(update: Update, context: CallbackContext):
+    context.user_data.pop("selected_chats", None)
+    context.user_data.pop("send_marker", None)
+    update.message.reply_text("Режим рассылки завершён. /menu для нового выбора.")
+dispatcher.add_handler(CommandHandler("done", done))
 
-# --- Пересылка любых сообщений, включая video_notes ---
+# --- Пересылка текстов и медиа ---
 def forward_message(update: Update, context: CallbackContext):
     msg = update.message
     uid = msg.from_user.id
@@ -141,53 +146,58 @@ def forward_message(update: Update, context: CallbackContext):
         return
 
     mid = msg.message_id
-    # не пересылаем метки меню
+    # не пересылаем маркер сообщений меню
     if mid == context.user_data.get("marker_id"):
         return
 
-    # 1) Тестовая отправка?
+    # тестовая рассылка?
     if context.user_data.pop("pending_test", False):
+        targets = TEST_SEND_CHATS
+        # чтобы не форвардить маркер
         if mid <= context.user_data.get("test_marker", 0):
             return
-        failures = []
-        for cid in TEST_SEND_CHATS:
-            try:
-                bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=mid)
-            except Exception:
-                failures.append(cid)
-        reply = failures and f"Не удалось в: {', '.join(map(str, failures))}" or "Тестовое сообщение отправлено."
-        msg.reply_text(reply)
-        msg.reply_text("Нажмите /menu для нового выбора.")
-        return
-
-    # 2) Основная рассылка?
-    if "selected_chats" in context.user_data:
+    else:
+        targets = context.user_data.get("selected_chats", [])
+        if not targets:
+            return
+        # чтобы не форвардить маркер
         if mid <= context.user_data.get("send_marker", 0):
             return
-        chat_ids = context.user_data.pop("selected_chats")
-        failures = []
-        for cid in chat_ids:
-            try:
-                bot.copy_message(chat_id=cid, from_chat_id=msg.chat.id, message_id=mid)
-            except Exception:
-                failures.append(cid)
-        reply = failures and f"Не отправлено в: {', '.join(map(str, failures))}" or "Сообщение доставлено во все чаты."
-        msg.reply_text(reply)
-        msg.reply_text("Нажмите /menu для нового выбора.")
-        return
+
+    # проверка ссылок для disable_web_page_preview
+    has_link = bool(msg.entities and any(e.type in ("url", "text_link") for e in msg.entities))
+
+    for cid in targets:
+        try:
+            if msg.text and has_link:
+                bot.send_message(
+                    chat_id=cid,
+                    text=msg.text,
+                    entities=msg.entities,
+                    disable_web_page_preview=True
+                )
+            else:
+                bot.copy_message(
+                    chat_id=cid,
+                    from_chat_id=msg.chat.id,
+                    message_id=mid
+                )
+            logging.info(f"Forwarded message {mid} → {cid}")
+        except Exception as e:
+            logging.error(f"Error forwarding to {cid}: {e}")
+
+    # остаёмся в режиме рассылки до /menu или /done
 
 dispatcher.add_handler(
     MessageHandler(
         Filters.chat_type.private &
-        # добавили Filters.video_note
-        (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document | Filters.video_note),
+        (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document),
         forward_message
     ),
     group=1
 )
 
-
-# --- Flask + Webhook + /ping ---
+# --- Flask / Webhook ---
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
@@ -196,10 +206,6 @@ def webhook():
     update = Update.de_json(data, bot)
     dispatcher.process_update(update)
     return "OK", 200
-
-@app.route('/ping', methods=['GET'])
-def ping():
-    return "pong", 200
 
 @app.route('/', methods=['GET'])
 def index():
