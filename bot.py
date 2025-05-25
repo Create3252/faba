@@ -9,8 +9,7 @@ from telegram.ext import (
     MessageHandler,
     Filters,
     CallbackContext,
-    DispatcherHandlerStop,
-    MediaGroupHandler,
+    DispatcherHandlerStop
 )
 from telegram.utils.request import Request
 
@@ -124,35 +123,6 @@ dispatcher.add_handler(
     group=0
 )
 
-# --- Пересылка альбомов (media groups) ---
-def forward_album(update_list, context: CallbackContext):
-    # Все элементы media_group пересылаем вместе
-    chat_ids = (
-        TEST_SEND_CHATS if context.user_data.get("pending_test")
-        else context.user_data.get("selected_chats", [])
-    )
-    for upd in update_list:
-        msg = upd.message
-        for cid in chat_ids:
-            try:
-                context.bot.copy_message(
-                    chat_id=cid,
-                    from_chat_id=msg.chat.id,
-                    message_id=msg.message_id
-                )
-            except Exception as e:
-                logging.error(f"Ошибка пересылки элемента альбома в {cid}: {e}")
-    # уведомляем отправителя
-    msg.reply_text("Альбом переслан. Нажмите /menu для нового выбора.")
-    # сбрасываем флаги
-    context.user_data.pop("pending_test", None)
-    context.user_data.pop("selected_chats", None)
-
-dispatcher.add_handler(
-    MediaGroupHandler(Filters.chat_type.private, forward_album),
-    group=1
-)
-
 # --- Пересылка одиночных сообщений и медиа ---
 def forward_message(update: Update, context: CallbackContext):
     msg = update.message
@@ -164,17 +134,18 @@ def forward_message(update: Update, context: CallbackContext):
     if mid == context.user_data.get("marker_id"):
         return
 
-    # тестовая отправка
+    # 1) Тестовая отправка
     if context.user_data.pop("pending_test", False):
         if mid <= context.user_data.get("test_marker", 0):
             return
         failures = []
         for cid in TEST_SEND_CHATS:
             try:
-                if msg.entities:
+                # если в тексте есть ссылки — отключаем предпросмотр
+                if msg.text and msg.entities:
                     bot.send_message(
                         chat_id=cid,
-                        text=msg.text or "",
+                        text=msg.text,
                         entities=msg.entities,
                         disable_web_page_preview=True
                     )
@@ -183,12 +154,12 @@ def forward_message(update: Update, context: CallbackContext):
             except Exception as e:
                 logging.error(f"[TEST] error {cid}: {e}")
                 failures.append(cid)
-        reply = "Ошибка в: " + ", ".join(map(str, failures)) if failures else "Тестовое сообщение отправлено."
+        reply = "Не удалось в: " + ", ".join(map(str, failures)) if failures else "Тестовое сообщение отправлено."
         msg.reply_text(reply)
         msg.reply_text("Нажмите /menu для нового выбора.")
         return
 
-    # основная рассылка
+    # 2) Основная рассылка
     if "selected_chats" in context.user_data:
         if mid <= context.user_data.get("send_marker", 0):
             return
@@ -196,10 +167,10 @@ def forward_message(update: Update, context: CallbackContext):
         failures = []
         for cid in chat_ids:
             try:
-                if msg.entities:
+                if msg.text and msg.entities:
                     bot.send_message(
                         chat_id=cid,
-                        text=msg.text or "",
+                        text=msg.text,
                         entities=msg.entities,
                         disable_web_page_preview=True
                     )
@@ -208,7 +179,7 @@ def forward_message(update: Update, context: CallbackContext):
             except Exception as e:
                 logging.error(f"[SEND] error {cid}: {e}")
                 failures.append(cid)
-        reply = "Не отправлено в: " + ", ".join(map(str, failures)) if failures else "Сообщение доставлено во все чаты."
+        reply = "Не удалось в: " + ", ".join(map(str, failures)) if failures else "Сообщение доставлено во все чаты."
         msg.reply_text(reply)
         msg.reply_text("Нажмите /menu для нового выбора.")
         return
@@ -219,7 +190,7 @@ dispatcher.add_handler(
         (Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document),
         forward_message
     ),
-    group=2
+    group=1
 )
 
 # --- Flask и Webhook ---
