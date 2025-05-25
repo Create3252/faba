@@ -81,6 +81,7 @@ def handle_main_menu(update: Update, context: CallbackContext):
         return
     choice = update.message.text.strip()
     context.user_data.pop("pending_main_menu", None)
+    # Чтобы не пересылать само меню
     context.user_data["marker_id"] = update.message.message_id
 
     if choice == "Список чатов ФАБА":
@@ -123,7 +124,7 @@ dispatcher.add_handler(
     group=0
 )
 
-# --- Пересылка одиночных сообщений и медиа ---
+# --- Пересылка сообщений и медиа ---
 def forward_message(update: Update, context: CallbackContext):
     msg = update.message
     uid = msg.from_user.id
@@ -131,6 +132,7 @@ def forward_message(update: Update, context: CallbackContext):
         return
 
     mid = msg.message_id
+    # не пересылаем сам маркер
     if mid == context.user_data.get("marker_id"):
         return
 
@@ -141,7 +143,6 @@ def forward_message(update: Update, context: CallbackContext):
         failures = []
         for cid in TEST_SEND_CHATS:
             try:
-                # если в тексте есть ссылки — отключаем предпросмотр
                 if msg.text and msg.entities:
                     bot.send_message(
                         chat_id=cid,
@@ -159,11 +160,11 @@ def forward_message(update: Update, context: CallbackContext):
         msg.reply_text("Нажмите /menu для нового выбора.")
         return
 
-    # 2) Основная рассылка
+    # 2) Основная рассылка — **НЕ удаляем** selected_chats, чтобы ловить все сообщения
     if "selected_chats" in context.user_data:
         if mid <= context.user_data.get("send_marker", 0):
             return
-        chat_ids = context.user_data.pop("selected_chats")
+        chat_ids = context.user_data["selected_chats"]
         failures = []
         for cid in chat_ids:
             try:
@@ -182,6 +183,7 @@ def forward_message(update: Update, context: CallbackContext):
         reply = "Не удалось в: " + ", ".join(map(str, failures)) if failures else "Сообщение доставлено во все чаты."
         msg.reply_text(reply)
         msg.reply_text("Нажмите /menu для нового выбора.")
+        # **не очищаем** context.user_data["selected_chats"]
         return
 
 dispatcher.add_handler(
