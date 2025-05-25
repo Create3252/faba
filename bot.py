@@ -1,19 +1,12 @@
 import os
 import logging
 from flask import Flask, request
-from telegram import Update, Bot, ReplyKeyboardMarkup
-from telegram.ext import (
-    Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext, DispatcherHandlerStop
-)
+from telegram import Bot, Update, ReplyKeyboardMarkup
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
 from telegram.utils.request import Request
-
-logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-if not BOT_TOKEN or not WEBHOOK_URL:
-    raise RuntimeError("Не указан BOT_TOKEN или WEBHOOK_URL")
-
 ALL_CITIES = [
     {"name": "Тюмень",        "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
     {"name": "Новосибирск",   "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
@@ -42,120 +35,91 @@ TEST_SEND_CHATS = [
 ]
 ALLOWED_USER_IDS = {296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564}
 
+app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+
 req = Request(connect_timeout=20, read_timeout=20)
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4)
 
-# Хранилище сообщений рассылки на пользователя (user_id: [message_id...])
-pending_messages = {}
+user_buffers = {}
+user_waiting = {}
+user_mode = {}
 
 def menu(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
         return update.message.reply_text("У вас нет прав.")
-    kb = [["Список чатов ФАБА", "Отправить сообщение во все чаты ФАБА"], ["Тестовая рассылка"]]
+    kb = [["Тестовая рассылка"], ["Рассылка по городам"], ["Список чатов ФАБА"]]
     markup = ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True)
     update.message.reply_text("Выберите действие:", reply_markup=markup)
-    context.user_data.clear()
 
-dispatcher.add_handler(CommandHandler("menu", menu))
-
-def handle_main_menu(update: Update, context: CallbackContext):
+def start_test_broadcast(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
         return
-    choice = update.message.text.strip()
-    if choice == "Список чатов ФАБА":
-        lines = ["Список чатов ФАБА:"] + [
-            f"<a href='{c['link']}'>{c['name']}</a>" for c in ALL_CITIES
-        ]
-        back = ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True, one_time_keyboard=True)
-        update.message.reply_text(
-            "\n".join(lines),
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            reply_markup=back
-        )
-        raise DispatcherHandlerStop
+    user_buffers[uid] = []
+    user_waiting[uid] = True
+    user_mode[uid] = "test"
+    update.message.reply_text("Отправляй любые сообщения (текст, фото, кружки и т.д.). Когда закончишь — напиши /sendall.")
 
-    if choice == "Тестовая рассылка":
-        context.user_data["collect_broadcast"] = True
-        pending_messages[uid] = []
-        update.message.reply_text(
-            "Отправляй любые сообщения (текст, фото, кружки и т.д.). Когда закончишь — напиши /sendall."
-        )
-        raise DispatcherHandlerStop
-
-    if choice == "Отправить сообщение во все чаты ФАБА":
-        context.user_data["collect_broadcast_all"] = True
-        pending_messages[uid] = []
-        update.message.reply_text(
-            "Отправляй любые сообщения для рассылки по всем городам. Когда закончишь — напиши /sendall."
-        )
-        raise DispatcherHandlerStop
-
-    if choice == "Назад":
-        return menu(update, context)
-
-dispatcher.add_handler(
-    MessageHandler(Filters.chat_type.private & Filters.text, handle_main_menu),
-    group=0
-)
-
-def collect_broadcast(update: Update, context: CallbackContext):
+def start_city_broadcast(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
-    msg = update.message
-    # Проверяем флаг в user_data, добавляем к рассылке
-    if context.user_data.get("collect_broadcast") or context.user_data.get("collect_broadcast_all"):
-        pending_messages.setdefault(uid, []).append(msg.message_id)
-        msg.reply_text("Сообщение добавлено к рассылке. Когда закончите — напишите /sendall.")
-        raise DispatcherHandlerStop
+    if uid not in ALLOWED_USER_IDS:
+        return
+    user_buffers[uid] = []
+    user_waiting[uid] = True
+    user_mode[uid] = "city"
+    update.message.reply_text("Отправляй любые сообщения для рассылки по всем городам. Когда закончишь — напиши /sendall.")
 
-dispatcher.add_handler(
-    MessageHandler(
-        Filters.chat_type.private & (
-            Filters.text | Filters.photo | Filters.video | Filters.audio | Filters.document | Filters.voice | Filters.video_note
-        ),
-        collect_broadcast
-    ),
-    group=1
-)
+def send_chat_list(update: Update, context: CallbackContext):
+    lines = ["Список чатов ФАБА:"]
+    for city in ALL_CITIES:
+        lines.append(f"<a href='{city['link']}'>{city['name']}</a>")
+    update.message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
+
+def add_to_buffer(update: Update, context: CallbackContext):
+    uid = update.message.from_user.id
+    if not user_waiting.get(uid):
+        return
+    if update.message.text and update.message.text.startswith("/"):
+        return
+    user_buffers.setdefault(uid, []).append(update.message)
+    if len(user_buffers[uid]) == 1:
+        update.message.reply_text("Сообщение добавлено к рассылке. Когда закончите — напишите /sendall.")
 
 def sendall(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
-    if uid not in ALLOWED_USER_IDS:
-        return
-    msg_ids = pending_messages.get(uid, [])
-    if not msg_ids:
+    if not user_buffers.get(uid):
         update.message.reply_text("Нет сообщений для рассылки.")
         return
-    # Куда рассылать
-    if context.user_data.get("collect_broadcast_all"):
-        chat_ids = [c['chat_id'] for c in ALL_CITIES]
+    # Куда рассылать?
+    if user_mode.get(uid) == "city":
+        chat_ids = [c["chat_id"] for c in ALL_CITIES]
     else:
         chat_ids = TEST_SEND_CHATS
+    for msg in user_buffers[uid]:
+        for chat_id in chat_ids:
+            try:
+                bot.copy_message(chat_id=chat_id, from_chat_id=msg.chat.id, message_id=msg.message_id)
+            except Exception as e:
+                logging.error(f"Ошибка при пересылке: {e}")
+    update.message.reply_text("Рассылка завершена.")
+    user_buffers[uid] = []
+    user_waiting[uid] = False
+    user_mode[uid] = None
 
-    failures = []
-    for mid in msg_ids:
-        try:
-            for cid in chat_ids:
-                try:
-                    bot.copy_message(chat_id=cid, from_chat_id=uid, message_id=mid)
-                except Exception as e:
-                    failures.append(f"{cid}:{e}")
-        except Exception as e:
-            failures.append(str(e))
-    if failures:
-        update.message.reply_text(f"Ошибка при рассылке: {failures}")
-    else:
-        update.message.reply_text("Рассылка завершена.")
-    # Сброс состояния
-    context.user_data.clear()
-    pending_messages[uid] = []
-
-dispatcher.add_handler(CommandHandler("sendall", sendall), group=2)
-
-app = Flask(__name__)
+dispatcher.add_handler(CommandHandler("menu", menu))
+dispatcher.add_handler(MessageHandler(Filters.regex("^Тестовая рассылка$"), start_test_broadcast))
+dispatcher.add_handler(MessageHandler(Filters.regex("^Рассылка по городам$"), start_city_broadcast))
+dispatcher.add_handler(MessageHandler(Filters.regex("^Список чатов ФАБА$"), send_chat_list))
+dispatcher.add_handler(CommandHandler("sendall", sendall))
+dispatcher.add_handler(
+    MessageHandler(
+        Filters.chat_type.private & ~Filters.command,
+        add_to_buffer
+    )
+)
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
