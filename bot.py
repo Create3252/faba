@@ -105,4 +105,35 @@ def send_all(update: Update, context: CallbackContext):
                 elif m.audio:
                     bot.send_audio(chat_id=cid, audio=m.audio.file_id, caption=m.caption or None, caption_entities=m.caption_entities)
                     logging.info(f"Отправлено аудио id={m.message_id} -> чат {cid}")
-                elif m.document
+                elif m.document:
+                    bot.send_document(chat_id=cid, document=m.document.file_id, caption=m.caption or None, caption_entities=m.caption_entities)
+                    logging.info(f"Отправлен документ id={m.message_id} -> чат {cid}")
+                elif m.sticker:
+                    bot.send_sticker(chat_id=cid, sticker=m.sticker.file_id)
+                    logging.info(f"Отправлен стикер id={m.message_id} -> чат {cid}")
+            except Exception as e:
+                logging.error(f"Ошибка отправки id={m.message_id} в {cid}: {e}")
+
+    update.message.reply_text("Все сообщения отправлены.")
+    logging.info(f"Рассылка завершена для пользователя {uid}.")
+
+dispatcher.add_handler(CommandHandler("sendall", send_all), group=2)
+
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.get_json(force=True)
+    update = Update.de_json(data, bot)
+    dispatcher.process_update(update)
+    return "OK", 200
+
+@app.route('/', methods=['GET'])
+def index():
+    return "Bot is running", 200
+
+if __name__ == "__main__":
+    bot.delete_webhook(drop_pending_updates=True)
+    bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
