@@ -33,6 +33,7 @@ TEST_SEND_CHATS = [
     -1002596576819,  # Москва тест
     -1002584369534   # Тюмень тест
 ]
+YOUR_ID = 296920330
 ALLOWED_USER_IDS = {296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564}
 
 app = Flask(__name__)
@@ -46,17 +47,22 @@ user_buffers = {}
 user_waiting = {}
 user_mode = {}
 
+def main_menu_keyboard(uid):
+    if uid == YOUR_ID:
+        kb = [["Тестовая рассылка"], ["Рассылка по городам"], ["Список чатов ФАБА"]]
+    else:
+        kb = [["Рассылка по городам"], ["Список чатов ФАБА"]]
+    return ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True)
+
 def menu(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if uid not in ALLOWED_USER_IDS:
         return update.message.reply_text("У вас нет прав.")
-    kb = [["Тестовая рассылка"], ["Рассылка по городам"], ["Список чатов ФАБА"]]
-    markup = ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True)
-    update.message.reply_text("Выберите действие:", reply_markup=markup)
+    update.message.reply_text("Выберите действие:", reply_markup=main_menu_keyboard(uid))
 
 def start_test_broadcast(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
-    if uid not in ALLOWED_USER_IDS:
+    if uid != YOUR_ID:
         return
     user_buffers[uid] = []
     user_waiting[uid] = True
@@ -65,18 +71,23 @@ def start_test_broadcast(update: Update, context: CallbackContext):
 
 def start_city_broadcast(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
-    if uid not in ALLOWED_USER_IDS:
-        return
     user_buffers[uid] = []
     user_waiting[uid] = True
     user_mode[uid] = "city"
     update.message.reply_text("Отправляй любые сообщения для рассылки по всем городам. Когда закончишь — напиши /sendall.")
 
 def send_chat_list(update: Update, context: CallbackContext):
+    uid = update.message.from_user.id
     lines = ["Список чатов ФАБА:"]
     for city in ALL_CITIES:
         lines.append(f"<a href='{city['link']}'>{city['name']}</a>")
-    update.message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
+    # Кнопка назад появляется всегда
+    markup = ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True, one_time_keyboard=True)
+    update.message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True, reply_markup=markup)
+
+def handle_back(update: Update, context: CallbackContext):
+    uid = update.message.from_user.id
+    update.message.reply_text("Выберите действие:", reply_markup=main_menu_keyboard(uid))
 
 def add_to_buffer(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
@@ -86,14 +97,15 @@ def add_to_buffer(update: Update, context: CallbackContext):
         return
     user_buffers.setdefault(uid, []).append(update.message)
     if len(user_buffers[uid]) == 1:
-        update.message.reply_text("Сообщение добавлено к рассылке. Когда закончите — напишите /sendall.")
+        update.message.reply_text(
+            "Сообщение добавлено к рассылке. Когда закончите — напишите или нажмите на ➡️ /sendall и рассылка уйдет"
+        )
 
 def sendall(update: Update, context: CallbackContext):
     uid = update.message.from_user.id
     if not user_buffers.get(uid):
         update.message.reply_text("Нет сообщений для рассылки.")
         return
-    # Куда рассылать?
     if user_mode.get(uid) == "city":
         chat_ids = [c["chat_id"] for c in ALL_CITIES]
     else:
@@ -104,7 +116,7 @@ def sendall(update: Update, context: CallbackContext):
                 bot.copy_message(chat_id=chat_id, from_chat_id=msg.chat.id, message_id=msg.message_id)
             except Exception as e:
                 logging.error(f"Ошибка при пересылке: {e}")
-    update.message.reply_text("Рассылка завершена.")
+    update.message.reply_text("Рассылка завершена.\nЧтобы начать пользоваться заново, нажмите /menu")
     user_buffers[uid] = []
     user_waiting[uid] = False
     user_mode[uid] = None
@@ -113,6 +125,7 @@ dispatcher.add_handler(CommandHandler("menu", menu))
 dispatcher.add_handler(MessageHandler(Filters.regex("^Тестовая рассылка$"), start_test_broadcast))
 dispatcher.add_handler(MessageHandler(Filters.regex("^Рассылка по городам$"), start_city_broadcast))
 dispatcher.add_handler(MessageHandler(Filters.regex("^Список чатов ФАБА$"), send_chat_list))
+dispatcher.add_handler(MessageHandler(Filters.regex("^Назад$"), handle_back))
 dispatcher.add_handler(CommandHandler("sendall", sendall))
 dispatcher.add_handler(
     MessageHandler(
