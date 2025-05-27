@@ -141,9 +141,9 @@ def webhook():
     dispatcher.process_update(update)
     return "OK", 200
 
-@app.route('/', methods=['GET'])
-def index():
-    return "Bot is running", 200
+@app.route('/ping', methods=['GET'])
+def ping():
+    return "pong", 200
 
 if __name__ == "__main__":
     bot.delete_webhook(drop_pending_updates=True)
