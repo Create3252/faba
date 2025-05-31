@@ -5,7 +5,9 @@ import os
 import logging
 import sqlite3
 import time
+import threading
 from math import floor, sqrt
+
 from flask import Flask, request
 from telegram import Bot, Update, ReplyKeyboardMarkup, ParseMode
 from telegram.ext import (
@@ -18,30 +20,35 @@ from telegram.ext import (
 from telegram.utils.request import Request
 
 # ==============================================================================
-# Константы
+# КОНСТАНТЫ
 # ==============================================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-# Чат «Тюмень» (где считаем рейтинг)
+# Убедитесь, что эти переменные окружения заданы:
+#   BOT_TOKEN="123456789:ABCDE..."
+#   WEBHOOK_URL="https://<your-render-domain>.onrender.com"
+
+# ID группы «Тюмень», в которой будем считать XP
 TYUMEN_CHAT_ID = -1002241413860
 
-DB_PATH = "activity.db"  # файл SQLite
+# Файл SQLite для хранения XP
+DB_PATH = "activity.db"
 
 # XP-настройки
-XP_PER_MESSAGE = 1          # базовый XP за сообщение
-XP_PER_50_CHARS = 0.2       # плюс 0.2 XP за каждые 50 символов
+XP_PER_MESSAGE = 1          # +1 XP за любое сообщение
+XP_PER_50_CHARS = 0.2       # +0.2 XP за каждые 50 символов текста
 XP_MAX_BONUS = 4            # максимум бонуса за длину
-XP_CAP_PER_MINUTE = 5       # максимум XP за минуту
+XP_CAP_PER_MINUTE = 5       # максимум XP, начисляемый за одну минуту
 
-# Список городов (оставляем без изменений)
+# Список городов и их чат_id (осталось без изменений)
 ALL_CITIES = [
     {"name": "Тюмень",        "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
     {"name": "Новосибирск",   "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
     {"name": "Сахалин",       "link": "https://t.me/+FzQ_jEYX8AtkMzNi", "chat_id": -1002265902434},
     {"name": "Красноярск",    "link": "https://t.me/+lMTDVPF0syRiYzdi", "chat_id": -1002311750873},
-    {"name": "Санкт-Петербург","link": "https://t.me/+EWj9jKhAvV82NWIy","chat_id": -1002152780476},
+    {"name": "Санкт-Петербург", "link": "https://t.me/+EWj9jKhAvV82NWIy", "chat_id": -1002152780476},
     {"name": "Москва",        "link": "https://t.me/+qokFNNnfhQdiYjQy", "chat_id": -1002182445604},
     {"name": "Екатеринбург",  "link": "https://t.me/+J2ESyZJyOAk2YzYy", "chat_id": -1002392430562},
     {"name": "Иркутск",       "link": "https://t.me/+TAoCnfoePUJmNzhi", "chat_id": -1002255012184},
@@ -59,16 +66,26 @@ ALL_CITIES = [
     {"name": "Тула",          "link": "https://t.me/+ZCq3GsGagIQ1NzRi", "chat_id": -1002678281080},
 ]
 
+# Чаты для тестовой рассылки
 TEST_SEND_CHATS = [
     -1002596576819,  # Москва тест
     -1002584369534   # Тюмень тест
 ]
 
+# Список админов, которым разрешено пользоваться меню и смотреть рейтинг
 YOUR_ID = 296920330
-ALLOWED_USER_IDS = {296920330, 320303183, 533773, 327650534, 533007308, 136737738, 1607945564}
+ALLOWED_USER_IDS = {
+    296920330,
+    320303183,
+    533773,
+    327650534,
+    533007308,
+    136737738,
+    1607945564
+}
 
 # ==============================================================================
-# Flask и Telegram Dispatcher
+# ИНИЦИАЛИЗАЦИЯ FLASK И DISPATCHER
 # ==============================================================================
 
 app = Flask(__name__)
@@ -80,10 +97,13 @@ bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4, use_context=True)
 
 # ==============================================================================
-# Инициализация SQLite
+# ФУНКЦИИ ДЛЯ SQLITE
 # ==============================================================================
 
 def init_db():
+    """
+    Создаёт файл activity.db и таблицу xp, если её ещё нет.
+    """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
@@ -98,24 +118,34 @@ def init_db():
     conn.commit()
     conn.close()
 
+# Инициализируем базу сразу при импорте (Gunicorn выполнит этот код при старте)
+init_db()
+
 # ==============================================================================
-# Функции для расчёта и записи XP
+# ФУНКЦИИ ДЛЯ РАСЧЁТА И ЗАПИСИ XP
 # ==============================================================================
 
 def calc_message_xp(text: str) -> float:
+    """
+    Вычисляет XP за сообщение:
+      - базово +1 XP,
+      - +0.2 XP за каждые 50 символов текста (максимум XP_MAX_BONUS).
+    """
     base = XP_PER_MESSAGE
     length_bonus = min((len(text) // 50) * XP_PER_50_CHARS, XP_MAX_BONUS)
     return base + length_bonus
 
 def record_xp(update: Update, context: CallbackContext):
+    """
+    Обрабатывает текстовые/медиа-сообщения в группе «Тюмень»:
+    начисляет XP и обновляет базу SQLite.
+    """
     message = update.effective_message
     chat = update.effective_chat
     user = update.effective_user
 
     # Считаем XP только из группы «Тюмень»
-    if chat.type not in ("group", "supergroup"):
-        return
-    if chat.id != TYUMEN_CHAT_ID:
+    if chat.type not in ("group", "supergroup") or chat.id != TYUMEN_CHAT_ID:
         return
     if not user or user.is_bot:
         return
@@ -138,7 +168,8 @@ def record_xp(update: Update, context: CallbackContext):
     else:
         total_xp, last_msg_ts = 0.0, 0
 
-    # Лимит XP за минуту
+    # Если последнее сообщение было меньше минуты назад и
+    # xp_gain превышает лимит за минуту, ничего не начисляем
     if last_msg_ts >= minute_bound and xp_gain > XP_CAP_PER_MINUTE:
         conn.close()
         return
@@ -158,16 +189,18 @@ def record_xp(update: Update, context: CallbackContext):
     conn.close()
 
 # ==============================================================================
-# Команды /rank и /top (только в личке и только для ALLOWED_USER_IDS)
+# КОМАНДЫ ДЛЯ РЕЙТИНГА (ТОЛЬКО В ЛИЧКУ И ТОЛЬКО ДЛЯ ALLOWED_USER_IDS)
 # ==============================================================================
 
 def cmd_rank(update: Update, context: CallbackContext):
-    chat = update.effective_chat
+    """
+    /rank — показывает XP и уровень пользователя (личка, только админы).
+    """
     user = update.effective_user
+    chat = update.effective_chat
 
-    # Разрешаем только в личке + только для админов
+    # Работает только для личных сообщений и только в ALLOWED_USER_IDS
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
-        # Если кто-то пытается вызвать из группы или не из списка разрешённых, ничего не делаем.
         return
 
     conn = sqlite3.connect(DB_PATH)
@@ -186,16 +219,19 @@ def cmd_rank(update: Update, context: CallbackContext):
     text = (
         f"👤 Ваши очки (XP) в группе «Тюмень»: *{int(total)}*\n"
         f"🎓 Уровень: *{level}*  (до следующего уровня осталось *{int(to_next)}* XP)\n\n"
-        "_XP начисляются только за сообщения в группе «Тюмень». Чтобы набрать XP, "
-        "пишите туда как обычно._"
+        "_XP начисляются только за сообщения в группе «Тюмень». "
+        "Чтобы набрать XP, пишите туда как обычно._"
     )
     update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 def cmd_top(update: Update, context: CallbackContext):
-    chat = update.effective_chat
+    """
+    /top [N] — показывает топ-N пользователей по XP (личка, только админы).
+    """
     user = update.effective_user
+    chat = update.effective_chat
 
-    # Разрешаем только в личке + только для админов
+    # Тоже только для личных и только в ALLOWED_USER_IDS
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
@@ -217,7 +253,7 @@ def cmd_top(update: Update, context: CallbackContext):
 
     if not rows:
         update.message.reply_text(
-            "Пока нет данных о рейтинге — никто ещё не писал в группу «Тюмень».", 
+            "Пока нет данных о рейтинге — никто ещё не писал в группу «Тюмень».",
             quote=True
         )
         return
@@ -233,11 +269,10 @@ def cmd_top(update: Update, context: CallbackContext):
         lines.append(f"{rank}. {name} — *{int(xp)}* XP")
         rank += 1
 
-    text = "\n".join(lines)
-    update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 # ==============================================================================
-# Хэндлеры для рассылок и меню (только в личке и только для ALLOWED_USER_IDS)
+# ХЭНДЛЕРЫ МЕНЮ И РАССЫЛОК (ТОЛЬКО В ЛИЧКУ И ДЛЯ ALLOWED_USER_IDS)
 # ==============================================================================
 
 user_buffers = {}
@@ -245,23 +280,31 @@ user_waiting = {}
 user_mode = {}
 
 def main_menu_keyboard(uid):
-    kb = [["Рассылка по городам"], ["Список чатов ФАБА"]]
-    # Если нужна опция «Тестовая рассылка» только вашему UID
+    kb = [
+        ["Рассылка по городам"],
+        ["Список чатов ФАБА"]
+    ]
+    # Кнопка «Тестовая рассылка» видна только YOUR_ID
     if uid == YOUR_ID:
         kb.insert(0, ["Тестовая рассылка"])
     return ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True)
 
 def menu(update: Update, context: CallbackContext):
+    """
+    /menu — открывает главное меню (личка, только админы).
+    """
     user = update.effective_user
     chat = update.effective_chat
 
-    # Разрешаем только в личке + только для админов
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
     update.message.reply_text("Выберите действие:", reply_markup=main_menu_keyboard(user.id))
 
 def start_test_broadcast(update: Update, context: CallbackContext):
+    """
+    Режим тестовой рассылки (личка, только YOUR_ID).
+    """
     user = update.effective_user
     chat = update.effective_chat
 
@@ -271,50 +314,70 @@ def start_test_broadcast(update: Update, context: CallbackContext):
     user_buffers[user.id] = []
     user_waiting[user.id] = True
     user_mode[user.id] = "test"
-    update.message.reply_text("Отправляй любые сообщения (текст, фото, стикеры и т. д.). Когда закончишь — напиши /sendall.")
+    update.message.reply_text(
+        "Отправляй любые сообщения (текст, фото, стикеры и т. д.). "
+        "Когда закончишь — напиши /sendall."
+    )
 
 def start_city_broadcast(update: Update, context: CallbackContext):
+    """
+    Режим рассылки по городам (личка, только админы).
+    """
     user = update.effective_user
     chat = update.effective_chat
 
-    # Только личка + админ
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
     user_buffers[user.id] = []
     user_waiting[user.id] = True
     user_mode[user.id] = "city"
-    update.message.reply_text("Отправляй любые сообщения для рассылки по всем городам. Когда закончишь — напиши /sendall.")
+    update.message.reply_text(
+        "Отправляй любые сообщения для рассылки по всем городам. "
+        "Когда закончишь — напиши /sendall."
+    )
 
 def send_chat_list(update: Update, context: CallbackContext):
+    """
+    Выводит список чатов ФАБА (личка, только админы).
+    """
     user = update.effective_user
     chat = update.effective_chat
 
-    # Только личка + админ
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
     lines = ["Список чатов ФАБА:"]
     for city in ALL_CITIES:
         lines.append(f"<a href='{city['link']}'>{city['name']}</a>")
+
     markup = ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True, one_time_keyboard=True)
-    update.message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True, reply_markup=markup)
+    update.message.reply_text(
+        "\n".join(lines),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+        reply_markup=markup
+    )
 
 def handle_back(update: Update, context: CallbackContext):
+    """
+    Кнопка «Назад» — возвращает в главное меню (личка, только админы).
+    """
     user = update.effective_user
     chat = update.effective_chat
 
-    # Только личка + админ
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
     update.message.reply_text("Выберите действие:", reply_markup=main_menu_keyboard(user.id))
 
 def add_to_buffer(update: Update, context: CallbackContext):
+    """
+    Добавляет сообщение в буфер для рассылки (личка, только админы, если открыт буфер).
+    """
     user = update.effective_user
     chat = update.effective_chat
 
-    # Только личка + админ + если открыт буфер
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS or not user_waiting.get(user.id):
         return
     if update.message.text and update.message.text.startswith("/"):
@@ -327,10 +390,12 @@ def add_to_buffer(update: Update, context: CallbackContext):
         )
 
 def sendall(update: Update, context: CallbackContext):
+    """
+    /sendall — отправляет накопленные сообщения из буфера в выбранные чаты.
+    """
     user = update.effective_user
     chat = update.effective_chat
 
-    # Только личка + админ
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
@@ -356,10 +421,10 @@ def sendall(update: Update, context: CallbackContext):
     user_mode[user.id] = None
 
 # ==============================================================================
-# Регистрация хэндлеров
+# РЕГИСТРАЦИЯ ХЭНДЛЕРОВ
 # ==============================================================================
 
-# 1) XP-запись (группа «Тюмень»)
+# 1) Хэндлер записи XP из группы «Тюмень»
 dispatcher.add_handler(
     MessageHandler(
         Filters.chat(TYUMEN_CHAT_ID)
@@ -370,11 +435,11 @@ dispatcher.add_handler(
     group=1
 )
 
-# 2) Команды /rank и /top (только личка + админы)
+# 2) Команды /rank и /top (личка, только ALLOWED_USER_IDS)
 dispatcher.add_handler(CommandHandler("rank", cmd_rank), group=2)
 dispatcher.add_handler(CommandHandler("top", cmd_top), group=2)
 
-# 3) Хэндлеры меню и рассылок (только личка + админы)
+# 3) Хэндлеры меню и рассылок (личка, только ALLOWED_USER_IDS)
 dispatcher.add_handler(CommandHandler("menu", menu), group=2)
 dispatcher.add_handler(MessageHandler(Filters.regex("^Тестовая рассылка$"), start_test_broadcast), group=2)
 dispatcher.add_handler(MessageHandler(Filters.regex("^Рассылка по городам$"), start_city_broadcast), group=2)
@@ -390,14 +455,20 @@ dispatcher.add_handler(
 )
 
 # ==============================================================================
-# Flask View для Webhook
+# WEBHOOK-РУЧКА: отвечаем мгновенно, а process_update выполняем в фоне
 # ==============================================================================
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, bot)
-    dispatcher.process_update(update)
+
+    # Запускаем диспетчер в отдельном потоке, чтобы вернуть HTTP 200 сразу
+    threading.Thread(
+        target=dispatcher.process_update,
+        args=(update,)
+    ).start()
+
     return "OK", 200
 
 @app.route('/ping', methods=['GET'])
@@ -405,15 +476,21 @@ def ping():
     return "pong", 200
 
 # ==============================================================================
-# Запуск приложения
+# УСТАНОВКА WEBHOOK (для Gunicorn/Render — выполняется при импорте модуля)
 # ==============================================================================
 
-if __name__ == "__main__":
-    # Создание/инициализация базы перед запуском
-    init_db()
-
+# Удаляем старый webhook и ставим новый сразу при старте процесса
+try:
     bot.delete_webhook(drop_pending_updates=True)
     bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+    logger.info(f"Webhook установлен: {WEBHOOK_URL}/webhook")
+except Exception as e:
+    logger.error(f"Не удалось установить webhook: {e}")
 
-    port = int(os.environ.get("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port)
+# ==============================================================================
+# ЗАПУСК ПРИ ЛОКАЛЬНОЙ ОТЛАДКЕ
+# ==============================================================================
+if __name__ == "__main__":
+    # Если запускаешь локально (а не через Gunicorn), пропиши переменные окружения
+    # и вызови Flask.run для отладки:
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
