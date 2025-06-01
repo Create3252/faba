@@ -32,7 +32,7 @@ ALL_CITIES = [
     {"name": "Новосибирск",    "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
     {"name": "Сахалин",        "link": "https://t.me/+FzQ_jEYX8AtkMzNi", "chat_id": -1002265902434},
     {"name": "Красноярск",     "link": "https://t.me/+lMTDVPF0syRiYzdi", "chat_id": -1002311750873},
-    {"name": "Санкт-Петербург","link": "https://t.me/+EWj9jKhAvV82NWIy","chat_id": -1002152780476},
+    {"name": "Санкт-Петербург","link": "https://t.me/+EWj9jKhAvV82NWIy", "chat_id": -1002152780476},
     {"name": "Москва",         "link": "https://t.me/+qokFNNnfhQdiYjQy", "chat_id": -1002182445604},
     {"name": "Екатеринбург",   "link": "https://t.me/+J2ESyZJyOAk2YzYy", "chat_id": -1002392430562},
     {"name": "Иркутск",        "link": "https://t.me/+TAoCnfoePUJmNzhi", "chat_id": -1002255012184},
@@ -488,6 +488,39 @@ def sendall(update: Update, context: CallbackContext):
     user_mode[user.id] = None
 
 # ==============================================================================
+# ФУНКЦИЯ /help И /commands
+# ==============================================================================
+
+def cmd_help(update: Update, context: CallbackContext):
+    """
+    /help или /commands — показывает список всех доступных команд.
+    Работает только в личке и только для ALLOWED_USER_IDS.
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
+        return
+
+    text = (
+        "📜 <b>Список доступных команд:</b>\n\n"
+        "• <code>/help</code> — показать этот список\n"
+        "• <code>/rank [город]</code> — ваш XP и уровень:\n"
+        "    — без аргументов — суммарно по всем городам\n"
+        "    — с названием города (например, <code>/rank Тюмень</code>) — только в конкретной группе\n"
+        "• <code>/top [город] [N]</code> — рейтинг пользователей по XP:\n"
+        "    — без аргументов — топ-N (по умолчанию 10) глобально по всем чатам\n"
+        "    — например, <code>/top Москва 5</code> — топ-5 в группе «Москва»\n"
+        "• <code>/menu</code> — открыть главное меню рассылок (личка, только админы)\n"
+        "• <code>Тестовая рассылка</code> — кнопка в меню (только YOUR_ID)\n"
+        "• <code>Рассылка по городам</code> — кнопка в меню\n"
+        "• <code>Список чатов ФАБА</code> — кнопка в меню\n"
+        "• <code>Назад</code> — кнопка в меню\n"
+        "• <code>/sendall</code> — отправить накопленные сообщения из буфера\n"
+    )
+    update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+# ==============================================================================
 # РЕГИСТРАЦИЯ ХЭНДЛЕРОВ
 # ==============================================================================
 
@@ -507,7 +540,11 @@ dispatcher.add_handler(
 dispatcher.add_handler(CommandHandler("rank", cmd_rank), group=2)
 dispatcher.add_handler(CommandHandler("top", cmd_top), group=2)
 
-# 3) Хэндлеры меню и рассылок (личка, только ALLOWED_USER_IDS)
+# 3) Команды /help и /commands (личка, только ALLOWED_USER_IDS)
+dispatcher.add_handler(CommandHandler("help", cmd_help), group=2)
+dispatcher.add_handler(CommandHandler("commands", cmd_help), group=2)
+
+# 4) Хэндлеры меню и рассылок (личка, только ALLOWED_USER_IDS)
 dispatcher.add_handler(CommandHandler("menu", menu), group=2)
 dispatcher.add_handler(MessageHandler(Filters.regex("^Тестовая рассылка$"), start_test_broadcast), group=2)
 dispatcher.add_handler(MessageHandler(Filters.regex("^Рассылка по городам$"), start_city_broadcast), group=2)
