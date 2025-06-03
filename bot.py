@@ -56,7 +56,7 @@ TEST_SEND_CHATS = [
     -1002584369534   # Тюмень тест
 ]
 
-# ID администраторов (те, кто может пользоваться меню, /top, /rank, /dbdump и т. д.)
+# ID администраторов (те, кто может пользоваться меню, /top, /rank, /dbdump, /dbpath и т. д.)
 YOUR_ID = 296920330
 ALLOWED_USER_IDS = {
     296920330,
@@ -95,7 +95,7 @@ dispatcher = Dispatcher(bot, None, workers=4, use_context=True)
 
 def init_db():
     """
-    Создаёт таблицу xp (если ещё нет) с полями:
+    Создаёт таблицу xp (если её ещё нет) с полями:
       chat_id, user_id, total_xp, last_msg_ts, first_name, last_name.
     """
     conn = sqlite3.connect(DB_PATH)
@@ -340,7 +340,7 @@ def cmd_rank(update: Update, context: CallbackContext):
     user = update.effective_user
     chat = update.effective_chat
 
-    # Только личный чат и только адмы
+    # Только личный чат и только админы
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
@@ -417,7 +417,7 @@ def cmd_rank(update: Update, context: CallbackContext):
         update.message.reply_text(text, quote=True)
 
 # ==============================================================================
-# КОМАНДА /dbdump — ПРОВЕРКА СОДЕРЖИМОГО БАЗЫ (личный диалог, только ALLOWED_USER_IDS)
+# КОМАНДА /dbdump — ДЛЯ ПРОВЕРКИ СОДЕРЖИМОГО БАЗЫ (личный диалог, только ALLOWED_USER_IDS)
 # ==============================================================================
 
 def cmd_dbdump(update: Update, context: CallbackContext):
@@ -453,6 +453,23 @@ def cmd_dbdump(update: Update, context: CallbackContext):
     update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 # ==============================================================================
+# КОМАНДА /dbpath — ВОЗВРАЩАЕТ ПРОФИЛЬ ПУТИ К activity.db (личный диалог, только ALLOWED_USER_IDS)
+# ==============================================================================
+
+def cmd_dbpath(update: Update, context: CallbackContext):
+    """
+    /dbpath — вернёт абсолютный путь к файлу activity.db.
+    Работает только в личном диалоге и только для админов (ALLOWED_USER_IDS).
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+    if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
+        return
+
+    path = os.path.abspath(DB_PATH)
+    update.message.reply_text(f"Файл базы находится здесь:\n`{path}`", parse_mode=ParseMode.MARKDOWN)
+
+# ==============================================================================
 # ХЭНДЛЕРЫ МЕНЮ И РАССЫЛОК (личный диалог, только ALLOWED_USER_IDS)
 # ==============================================================================
 
@@ -463,7 +480,7 @@ user_mode = {}
 def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
     """
     Формирует клавиатуру меню в личном чате у админа:
-      - (опционально) Тестовая рассылка — только для YOUR_ID
+      - Тестовая рассылка (только для YOUR_ID)
       - Рассылка по городам
       - Список чатов ФАБА
       - Рейтинг
@@ -635,7 +652,10 @@ dispatcher.add_handler(CommandHandler("rank", cmd_rank), group=2)
 # 4) /dbdump (личный диалог, только ALLOWED_USER_IDS) — для проверки БД
 dispatcher.add_handler(CommandHandler("dbdump", cmd_dbdump), group=2)
 
-# 5) Меню и рассылки
+# 5) /dbpath (личный диалог, только ALLOWED_USER_IDS) — показывает путь к файлу activity.db
+dispatcher.add_handler(CommandHandler("dbpath", cmd_dbpath), group=2)
+
+# 6) Меню и рассылки
 dispatcher.add_handler(CommandHandler("menu", menu), group=2)
 dispatcher.add_handler(MessageHandler(Filters.regex("^Тестовая рассылка$"), start_test_broadcast), group=2)
 dispatcher.add_handler(MessageHandler(Filters.regex("^Рассылка по городам$"), start_city_broadcast), group=2)
@@ -650,7 +670,7 @@ dispatcher.add_handler(
     group=2
 )
 
-# 6) Кнопка «Рейтинг» — ловим точное текстовое сообщение "Рейтинг" в личном чате и вызываем cmd_top
+# 7) Кнопка «Рейтинг» — ловим точное текстовое сообщение "Рейтинг" в личном чате и вызываем cmd_top
 dispatcher.add_handler(
     MessageHandler(
         Filters.text("Рейтинг") & Filters.chat_type.private & Filters.user(ALLOWED_USER_IDS),
