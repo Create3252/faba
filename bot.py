@@ -82,9 +82,7 @@ logger = logging.getLogger(__name__)
 
 req = Request(
     connect_timeout=20,
-    read_timeout=20,
-    pool_size=50,
-    pool_timeout=5
+    read_timeout=20
 )
 bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4, use_context=True)
@@ -402,7 +400,7 @@ def cmd_dbdump(update: Update, context: CallbackContext):
 # ==============================================================================
 # КОМАНДА /dbpath
 # ==============================================================================
-  
+
 def cmd_dbpath(update: Update, context: CallbackContext):
     user = update.effective_user
     chat = update.effective_chat
