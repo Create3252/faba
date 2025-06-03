@@ -9,7 +9,7 @@ import threading
 from math import floor, sqrt
 
 from flask import Flask, request
-from telegram import Bot, Update, ReplyKeyboardMarkup, ParseMode
+from telegram import Bot, Update, ReplyKeyboardMarkup, ParseMode, InputFile
 from telegram.ext import (
     Dispatcher,
     CommandHandler,
@@ -50,13 +50,13 @@ ALL_CITIES = [
     {"name": "Тула",            "link": "https://t.me/+ZCq3GsGagIQ1NzRi", "chat_id": -1002678281080},
 ]
 
-# Чаты для тестовой (песочницы) рассылки
+# Чаты для тестовой рассылки (не боевые)
 TEST_SEND_CHATS = [
     -1002596576819,  # Москва тест
     -1002584369534   # Тюмень тест
 ]
 
-# ID администраторов (те, кто может пользоваться меню, /top, /rank, /dbdump, /dbpath и т. д.)
+# ID админов (которые могут вызывать меню, /top, /rank, /dbdump, /dbpath, /senddb и т.д.)
 YOUR_ID = 296920330
 ALLOWED_USER_IDS = {
     296920330,
@@ -70,11 +70,11 @@ ALLOWED_USER_IDS = {
 
 # Настройки начисления XP
 XP_PER_MESSAGE    = 1      # +1 XP за любое сообщение
-XP_PER_50_CHARS   = 0.2    # +0.2 XP за каждые 50 символов (макс. бонус XP_MAX_BONUS)
-XP_MAX_BONUS      = 4      # максимум бонуса за длину текста
+XP_PER_50_CHARS   = 0.2    # +0.2 XP за каждые 50 символов текста (максимум до XP_MAX_BONUS)
+XP_MAX_BONUS      = 4      # максимум бонуса за длину
 XP_CAP_PER_MINUTE = 5      # максимум XP, начисляемый за одну минуту
 
-# Имя файла SQLite, где хранятся все данные (лежит рядом с bot.py)
+# Путь к файлу SQLite (лежит рядом с bot.py)
 DB_PATH = "activity.db"
 
 # ==============================================================================
@@ -116,7 +116,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# При импорте сразу создаём таблицу, если её нет.
+# При старте сразу создаём таблицу, если её нет
 init_db()
 
 # ==============================================================================
@@ -127,7 +127,7 @@ def calc_message_xp(text: str) -> float:
     """
     Вычисляет XP за сообщение:
       - базово +1 XP,
-      - +0.2 XP за каждые 50 символов текста (до XP_MAX_BONUS).
+      - +0.2 XP за каждые 50 символов текста (максимум XP_MAX_BONUS).
     """
     base = XP_PER_MESSAGE
     length_bonus = min((len(text) // 50) * XP_PER_50_CHARS, XP_MAX_BONUS)
@@ -136,7 +136,7 @@ def calc_message_xp(text: str) -> float:
 def get_city_name(chat_id: int) -> str:
     """
     По chat_id возвращает название города из ALL_CITIES,
-    либо 'Неизвестно', если chat_id не найден.
+    или "Неизвестно", если chat_id не найден.
     """
     for city in ALL_CITIES:
         if city["chat_id"] == chat_id:
@@ -152,13 +152,13 @@ def record_xp(update: Update, context: CallbackContext):
     Ловит все сообщения (текст, фото, видео, документы) в чатах из ALL_CITIES:
     - считает XP (1 базово + бонус за длину),
     - применяет лимит XP_CAP_PER_MINUTE,
-    - сохраняет (или обновляет) строку в таблице xp вместе с first_name и last_name.
+    - сохраняет (или обновляет) запись в таблице xp вместе с first_name и last_name.
     """
     message = update.effective_message
     chat    = update.effective_chat
     user    = update.effective_user
 
-    # Если не нужный чат или бот, выходим
+    # Если сообщение пришло не из городского чата или пришло от другого бота, пропускаем
     valid_chat_ids = {city["chat_id"] for city in ALL_CITIES}
     if chat.type not in ("group", "supergroup") or chat.id not in valid_chat_ids:
         return
@@ -176,7 +176,7 @@ def record_xp(update: Update, context: CallbackContext):
     conn = sqlite3.connect(DB_PATH)
     cur  = conn.cursor()
 
-    # Получаем текущее total_xp и время последнего сообщения
+    # Получаем текущее total_xp и время последнего сообщения для этого (chat_id, user_id)
     cur.execute(
         "SELECT total_xp, last_msg_ts FROM xp WHERE chat_id = ? AND user_id = ?",
         (chat.id, user.id)
@@ -187,14 +187,14 @@ def record_xp(update: Update, context: CallbackContext):
     else:
         total_xp, last_msg_ts = 0.0, 0
 
-    # Анти-флуд: если в последнюю минуту уже начислили XP более XP_CAP_PER_MINUTE, пропускаем
+    # Анти-флуд: не начисляем более XP_CAP_PER_MINUTE за минуту
     if last_msg_ts >= minute_bound and xp_gain > XP_CAP_PER_MINUTE:
         conn.close()
         return
 
     total_xp += xp_gain
 
-    # Сохраняем или обновляем запись в таблице xp
+    # Вставляем или обновляем запись вместе с именами
     cur.execute(
         """
         INSERT INTO xp (chat_id, user_id, total_xp, last_msg_ts, first_name, last_name)
@@ -219,13 +219,12 @@ def cmd_top(update: Update, context: CallbackContext):
     /top [<город>] [N]
     - Если указан <город>, выводит топ-N пользователей по XP в этом чате.
     - Иначе выводит топ-N пользователей глобально (сумма XP по всем чатам).
-    N по умолчанию = 10. Выводит кликабельные имена и в скобках — название чата.
+    N по умолчанию = 10. В ответе кликабельное имя и чат в скобках.
     Работает только в личном диалоге и только для админов (ALLOWED_USER_IDS).
     """
     user = update.effective_user
     chat = update.effective_chat
 
-    # Только личный чат и только админы
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
@@ -234,7 +233,7 @@ def cmd_top(update: Update, context: CallbackContext):
     target_chat_id = None
     n = 10
 
-    # Если последний аргумент цифра → это N, иначе весь текст = название города
+    # Если последний аргумент — цифра, это N; иначе весь текст = название города
     if args:
         if args[-1].isdigit():
             n = max(1, min(int(args[-1]), 50))
@@ -275,7 +274,6 @@ def cmd_top(update: Update, context: CallbackContext):
         rank = 1
         for user_id, xp, first_name, last_name in rows:
             display_name = f"{first_name} {last_name}".strip() or f"ID:{user_id}"
-            # Кликабельная ссылка на профиль
             html_name = f'<a href="tg://user?id={user_id}">{display_name}</a>'
             lines.append(f"{rank}. {html_name} ({city_name_display}) — {int(xp)} XP")
             rank += 1
@@ -292,7 +290,7 @@ def cmd_top(update: Update, context: CallbackContext):
             """,
             (n,)
         )
-        top_users = cur.fetchall()  # [(user_id, sum_xp), ...]
+        top_users = cur.fetchall()
 
         if not top_users:
             update.message.reply_text("Пока нет данных.", quote=True)
@@ -335,12 +333,11 @@ def cmd_rank(update: Update, context: CallbackContext):
     /rank [<город>]
     - Если указан <город>, показывает ваши XP и уровень в этом чате.
     - Иначе показывает суммарный (глобальный) XP по всем чатам.
-    Работает только в личном диалоге и только для админов (ALLOWED_USER_IDS).
+    Работает только в личке и только для админов (ALLOWED_USER_IDS).
     """
     user = update.effective_user
     chat = update.effective_chat
 
-    # Только личный чат и только админы
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
@@ -417,7 +414,7 @@ def cmd_rank(update: Update, context: CallbackContext):
         update.message.reply_text(text, quote=True)
 
 # ==============================================================================
-# КОМАНДА /dbdump — ДЛЯ ПРОВЕРКИ СОДЕРЖИМОГО БАЗЫ (личный диалог, только ALLOWED_USER_IDS)
+# КОМАНДА /dbdump — ПРОВЕРКА СОДЕРЖИМОГО БАЗЫ (личный диалог, только ALLOWED_USER_IDS)
 # ==============================================================================
 
 def cmd_dbdump(update: Update, context: CallbackContext):
@@ -453,7 +450,7 @@ def cmd_dbdump(update: Update, context: CallbackContext):
     update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 # ==============================================================================
-# КОМАНДА /dbpath — ВОЗВРАЩАЕТ ПРОФИЛЬ ПУТИ К activity.db (личный диалог, только ALLOWED_USER_IDS)
+# КОМАНДА /dbpath — ПОКАЗАТЬ ПУТЬ К ФАЙЛУ БД (личный диалог, только ALLOWED_USER_IDS)
 # ==============================================================================
 
 def cmd_dbpath(update: Update, context: CallbackContext):
@@ -463,11 +460,33 @@ def cmd_dbpath(update: Update, context: CallbackContext):
     """
     user = update.effective_user
     chat = update.effective_chat
+
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
     path = os.path.abspath(DB_PATH)
     update.message.reply_text(f"Файл базы находится здесь:\n`{path}`", parse_mode=ParseMode.MARKDOWN)
+
+# ==============================================================================
+# КОМАНДА /senddb — ОТПРАВИТЬ САМ ФАЙЛ activity.db (личный диалог, только ALLOWED_USER_IDS)
+# ==============================================================================
+
+def cmd_senddb(update: Update, context: CallbackContext):
+    """
+    /senddb — бот пришлёт вам файл activity.db в личке.
+    Работает только в личном диалоге и только для админов (ALLOWED_USER_IDS).
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
+        return
+
+    try:
+        db_file = InputFile(DB_PATH, filename="activity.db")
+        update.message.reply_document(db_file)
+    except Exception as e:
+        update.message.reply_text(f"Не удалось отправить файл: {e}", quote=True)
 
 # ==============================================================================
 # ХЭНДЛЕРЫ МЕНЮ И РАССЫЛОК (личный диалог, только ALLOWED_USER_IDS)
@@ -578,8 +597,7 @@ def handle_back(update: Update, context: CallbackContext):
 
 def add_to_buffer(update: Update, context: CallbackContext):
     """
-    Добавляет сообщение в буфер для рассылки (личный диалог, только админы,
-    если открыт буфер).
+    Добавляет сообщение в буфер для рассылки (личный диалог, только админы, если открыт буфер).
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -649,13 +667,16 @@ dispatcher.add_handler(CommandHandler("top", cmd_top), group=2)
 # 3) /rank (личный диалог, только ALLOWED_USER_IDS)
 dispatcher.add_handler(CommandHandler("rank", cmd_rank), group=2)
 
-# 4) /dbdump (личный диалог, только ALLOWED_USER_IDS) — для проверки БД
+# 4) /dbdump (личный диалог, только ALLOWED_USER_IDS) — для проверки содержимого БД
 dispatcher.add_handler(CommandHandler("dbdump", cmd_dbdump), group=2)
 
-# 5) /dbpath (личный диалог, только ALLOWED_USER_IDS) — показывает путь к файлу activity.db
+# 5) /dbpath (личный диалог, только ALLOWED_USER_IDS) — показать путь к activity.db
 dispatcher.add_handler(CommandHandler("dbpath", cmd_dbpath), group=2)
 
-# 6) Меню и рассылки
+# 6) /senddb (личный диалог, только ALLOWED_USER_IDS) — прислать сам файл activity.db
+dispatcher.add_handler(CommandHandler("senddb", cmd_senddb), group=2)
+
+# 7) Меню и рассылки
 dispatcher.add_handler(CommandHandler("menu", menu), group=2)
 dispatcher.add_handler(MessageHandler(Filters.regex("^Тестовая рассылка$"), start_test_broadcast), group=2)
 dispatcher.add_handler(MessageHandler(Filters.regex("^Рассылка по городам$"), start_city_broadcast), group=2)
@@ -670,7 +691,7 @@ dispatcher.add_handler(
     group=2
 )
 
-# 7) Кнопка «Рейтинг» — ловим точное текстовое сообщение "Рейтинг" в личном чате и вызываем cmd_top
+# 8) Кнопка «Рейтинг» — ловим точное текстовое сообщение "Рейтинг" в личном чате и вызываем cmd_top
 dispatcher.add_handler(
     MessageHandler(
         Filters.text("Рейтинг") & Filters.chat_type.private & Filters.user(ALLOWED_USER_IDS),
