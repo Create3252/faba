@@ -23,7 +23,7 @@ from telegram.utils.request import Request
 # КОНСТАНТЫ
 # ==============================================================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN   = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 # Список всех городских чатов (для начисления XP)
@@ -50,13 +50,13 @@ ALL_CITIES = [
     {"name": "Тула",            "link": "https://t.me/+ZCq3GsGagIQ1NzRi", "chat_id": -1002678281080},
 ]
 
-# Тестовые чаты для рассылки (не боевые)
+# Чаты для тестовой (песочницы) рассылки
 TEST_SEND_CHATS = [
     -1002596576819,  # Москва тест
     -1002584369534   # Тюмень тест
 ]
 
-# ID админов (разрешено вызывать меню, /top, /rank, /dbdump и т.п.)
+# ID администраторов (те, кто может пользоваться меню, /top, /rank, /dbdump и т. д.)
 YOUR_ID = 296920330
 ALLOWED_USER_IDS = {
     296920330,
@@ -68,17 +68,17 @@ ALLOWED_USER_IDS = {
     1607945564
 }
 
-# Настройки XP
+# Настройки начисления XP
 XP_PER_MESSAGE    = 1      # +1 XP за любое сообщение
-XP_PER_50_CHARS   = 0.2    # +0.2 XP за каждые 50 символов (максимум до XP_MAX_BONUS)
-XP_MAX_BONUS      = 4      # максимум бонуса за длину
+XP_PER_50_CHARS   = 0.2    # +0.2 XP за каждые 50 символов (макс. бонус XP_MAX_BONUS)
+XP_MAX_BONUS      = 4      # максимум бонуса за длину текста
 XP_CAP_PER_MINUTE = 5      # максимум XP, начисляемый за одну минуту
 
-# Путь к файлу SQLite (лежит рядом с bot.py)
+# Имя файла SQLite, где хранятся все данные (лежит рядом с bot.py)
 DB_PATH = "activity.db"
 
 # ==============================================================================
-# ИНИЦИАЛИЗАЦИЯ FLASK И DISPATCHER
+# ИНИЦИАЛИЗАЦИЯ Flask И Dispatcher
 # ==============================================================================
 
 app = Flask(__name__)
@@ -90,13 +90,13 @@ bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4, use_context=True)
 
 # ==============================================================================
-# ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ (SQLite)
+# ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
 # ==============================================================================
 
 def init_db():
     """
-    Создаёт таблицу xp, если её ещё нет.
-    Поля: chat_id, user_id, total_xp, last_msg_ts, first_name, last_name.
+    Создаёт таблицу xp (если ещё нет) с полями:
+      chat_id, user_id, total_xp, last_msg_ts, first_name, last_name.
     """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -116,6 +116,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+# При импорте сразу создаём таблицу, если её нет.
 init_db()
 
 # ==============================================================================
@@ -126,7 +127,7 @@ def calc_message_xp(text: str) -> float:
     """
     Вычисляет XP за сообщение:
       - базово +1 XP,
-      - +0.2 XP за каждые 50 символов текста (максимум XP_MAX_BONUS).
+      - +0.2 XP за каждые 50 символов текста (до XP_MAX_BONUS).
     """
     base = XP_PER_MESSAGE
     length_bonus = min((len(text) // 50) * XP_PER_50_CHARS, XP_MAX_BONUS)
@@ -134,7 +135,8 @@ def calc_message_xp(text: str) -> float:
 
 def get_city_name(chat_id: int) -> str:
     """
-    По chat_id возвращает название города из ALL_CITIES, или 'Неизвестно'.
+    По chat_id возвращает название города из ALL_CITIES,
+    либо 'Неизвестно', если chat_id не найден.
     """
     for city in ALL_CITIES:
         if city["chat_id"] == chat_id:
@@ -142,19 +144,21 @@ def get_city_name(chat_id: int) -> str:
     return "Неизвестно"
 
 # ==============================================================================
-# ХЭНДЛЕР ЗАПИСИ XP
+# ХЭНДЛЕР ЗАПИСИ XP В БАЗУ
 # ==============================================================================
 
 def record_xp(update: Update, context: CallbackContext):
     """
-    Обрабатывает сообщения (текст/медиа) в чатах ALL_CITIES:
-    начисляет XP и обновляет базу SQLite, сохраняя first_name и last_name.
+    Ловит все сообщения (текст, фото, видео, документы) в чатах из ALL_CITIES:
+    - считает XP (1 базово + бонус за длину),
+    - применяет лимит XP_CAP_PER_MINUTE,
+    - сохраняет (или обновляет) строку в таблице xp вместе с first_name и last_name.
     """
     message = update.effective_message
-    chat = update.effective_chat
-    user = update.effective_user
+    chat    = update.effective_chat
+    user    = update.effective_user
 
-    # Если не нужный чат или бот, пропускаем
+    # Если не нужный чат или бот, выходим
     valid_chat_ids = {city["chat_id"] for city in ALL_CITIES}
     if chat.type not in ("group", "supergroup") or chat.id not in valid_chat_ids:
         return
@@ -167,12 +171,12 @@ def record_xp(update: Update, context: CallbackContext):
     minute_bound = now_ts - 60
 
     first_name = user.first_name or ""
-    last_name = user.last_name or ""
+    last_name  = user.last_name  or ""
 
     conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+    cur  = conn.cursor()
 
-    # Читаем текущее total_xp и время последнего сообщения
+    # Получаем текущее total_xp и время последнего сообщения
     cur.execute(
         "SELECT total_xp, last_msg_ts FROM xp WHERE chat_id = ? AND user_id = ?",
         (chat.id, user.id)
@@ -183,14 +187,14 @@ def record_xp(update: Update, context: CallbackContext):
     else:
         total_xp, last_msg_ts = 0.0, 0
 
-    # Анти-флуд: не начисляем более XP_CAP_PER_MINUTE за минуту
+    # Анти-флуд: если в последнюю минуту уже начислили XP более XP_CAP_PER_MINUTE, пропускаем
     if last_msg_ts >= minute_bound and xp_gain > XP_CAP_PER_MINUTE:
         conn.close()
         return
 
     total_xp += xp_gain
 
-    # Сохраняем или обновляем запись с именем пользователя
+    # Сохраняем или обновляем запись в таблице xp
     cur.execute(
         """
         INSERT INTO xp (chat_id, user_id, total_xp, last_msg_ts, first_name, last_name)
@@ -207,20 +211,21 @@ def record_xp(update: Update, context: CallbackContext):
     conn.close()
 
 # ==============================================================================
-# КОМАНДА /top — ТОП-РЕЙТИНГ (личка, только ALLOWED_USER_IDS)
+# КОМАНДА /top — ТОП-РЕЙТИНГ (личный диалог, только ALLOWED_USER_IDS)
 # ==============================================================================
 
 def cmd_top(update: Update, context: CallbackContext):
     """
     /top [<город>] [N]
-    - Если указан <город>, показывает топ-N пользователей по XP в этом чате.
-    - Иначе показывает топ-N глобально (сумма по всем чатам).
-    По умолчанию N=10. Выводит кликабельные имена и в скобках — название чата.
-    Работает только в личке и только для админов (ALLOWED_USER_IDS).
+    - Если указан <город>, выводит топ-N пользователей по XP в этом чате.
+    - Иначе выводит топ-N пользователей глобально (сумма XP по всем чатам).
+    N по умолчанию = 10. Выводит кликабельные имена и в скобках — название чата.
+    Работает только в личном диалоге и только для админов (ALLOWED_USER_IDS).
     """
     user = update.effective_user
     chat = update.effective_chat
 
+    # Только личный чат и только админы
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
@@ -229,7 +234,7 @@ def cmd_top(update: Update, context: CallbackContext):
     target_chat_id = None
     n = 10
 
-    # Разбираем аргументы: если последний цифра — это N, иначе весь текст = город
+    # Если последний аргумент цифра → это N, иначе весь текст = название города
     if args:
         if args[-1].isdigit():
             n = max(1, min(int(args[-1]), 50))
@@ -247,12 +252,12 @@ def cmd_top(update: Update, context: CallbackContext):
             target_chat_id = city_map[city_part]
 
     conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+    cur  = conn.cursor()
 
     lines = []
 
     if target_chat_id:
-        # Топ в конкретном чате
+        # Топ-N в конкретном чате
         cur.execute(
             "SELECT user_id, total_xp, first_name, last_name "
             "FROM xp WHERE chat_id = ? ORDER BY total_xp DESC LIMIT ?",
@@ -270,13 +275,13 @@ def cmd_top(update: Update, context: CallbackContext):
         rank = 1
         for user_id, xp, first_name, last_name in rows:
             display_name = f"{first_name} {last_name}".strip() or f"ID:{user_id}"
-            # Кликабельное имя
+            # Кликабельная ссылка на профиль
             html_name = f'<a href="tg://user?id={user_id}">{display_name}</a>'
             lines.append(f"{rank}. {html_name} ({city_name_display}) — {int(xp)} XP")
             rank += 1
 
     else:
-        # Глобальный топ: суммируем по user_id
+        # Глобальный топ-N (по сумме XP во всех чатах)
         cur.execute(
             """
             SELECT user_id, SUM(total_xp) AS sum_xp
@@ -297,7 +302,7 @@ def cmd_top(update: Update, context: CallbackContext):
         lines.append(f"🏆 Глобальный топ-{n}:")
         rank = 1
         for user_id, sum_xp in top_users:
-            # Определяем, из какого чата у пользователя максимальный XP
+            # Находим, в каком чате у этого пользователя самый высокий XP
             cur.execute(
                 "SELECT chat_id FROM xp WHERE user_id = ? ORDER BY total_xp DESC LIMIT 1",
                 (user_id,)
@@ -305,7 +310,7 @@ def cmd_top(update: Update, context: CallbackContext):
             top_chat_row = cur.fetchone()
             chat_name = get_city_name(top_chat_row[0]) if top_chat_row else "Неизвестно"
 
-            # Берём имя из первой записи
+            # Берём имя из любой записи
             cur.execute(
                 "SELECT first_name, last_name FROM xp WHERE user_id = ? LIMIT 1",
                 (user_id,)
@@ -322,19 +327,20 @@ def cmd_top(update: Update, context: CallbackContext):
     update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 # ==============================================================================
-# КОМАНДА /rank — ЛИЧНЫЙ РЕЙТИНГ (личка, только ALLOWED_USER_IDS)
+# КОМАНДА /rank — ЛИЧНЫЙ РЕЙТИНГ (личный диалог, только ALLOWED_USER_IDS)
 # ==============================================================================
 
 def cmd_rank(update: Update, context: CallbackContext):
     """
     /rank [<город>]
-    - Если <город> указан, показывает XP и уровень пользователя в этом чате.
+    - Если указан <город>, показывает ваши XP и уровень в этом чате.
     - Иначе показывает суммарный (глобальный) XP по всем чатам.
-    Работает только в личке и только для админов (ALLOWED_USER_IDS).
+    Работает только в личном диалоге и только для админов (ALLOWED_USER_IDS).
     """
     user = update.effective_user
     chat = update.effective_chat
 
+    # Только личный чат и только адмы
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
@@ -342,7 +348,7 @@ def cmd_rank(update: Update, context: CallbackContext):
     city_map = {city["name"].lower(): city["chat_id"] for city in ALL_CITIES}
 
     conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+    cur  = conn.cursor()
 
     if args:
         city_name = " ".join(args).lower()
@@ -411,13 +417,13 @@ def cmd_rank(update: Update, context: CallbackContext):
         update.message.reply_text(text, quote=True)
 
 # ==============================================================================
-# КОМАНДА /dbdump — ДЛЯ ПРОВЕРКИ СОДЕРЖИМОГО БАЗЫ (личка, только ALLOWED_USER_IDS)
+# КОМАНДА /dbdump — ПРОВЕРКА СОДЕРЖИМОГО БАЗЫ (личный диалог, только ALLOWED_USER_IDS)
 # ==============================================================================
 
 def cmd_dbdump(update: Update, context: CallbackContext):
     """
-    /dbdump — вернуть первые 10 строк из таблицы xp (chat_id, user_id, total_xp, first_name, last_name).
-    Работает только в личке и только для админов.
+    /dbdump — вернуть первые 10 строк из таблицы xp (для проверки).
+    Работает только в личном диалоге и только для админов (ALLOWED_USER_IDS).
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -426,7 +432,7 @@ def cmd_dbdump(update: Update, context: CallbackContext):
         return
 
     conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+    cur  = conn.cursor()
     cur.execute(
         "SELECT chat_id, user_id, total_xp, first_name, last_name FROM xp LIMIT 10"
     )
@@ -447,7 +453,7 @@ def cmd_dbdump(update: Update, context: CallbackContext):
     update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 # ==============================================================================
-# ХЭНДЛЕРЫ МЕНЮ И РАССЫЛОК (личка, только ALLOWED_USER_IDS)
+# ХЭНДЛЕРЫ МЕНЮ И РАССЫЛОК (личный диалог, только ALLOWED_USER_IDS)
 # ==============================================================================
 
 user_buffers = {}
@@ -456,8 +462,8 @@ user_mode = {}
 
 def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
     """
-    Собирает клавиатуру меню в личном чате у админа:
-      - Тестовая рассылка (только для YOUR_ID)
+    Формирует клавиатуру меню в личном чате у админа:
+      - (опционально) Тестовая рассылка — только для YOUR_ID
       - Рассылка по городам
       - Список чатов ФАБА
       - Рейтинг
@@ -473,7 +479,7 @@ def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
 
 def menu(update: Update, context: CallbackContext):
     """
-    /menu — открыть главное меню (личка, только админы).
+    /menu — открыть главное меню (личный диалог, только админы).
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -485,7 +491,7 @@ def menu(update: Update, context: CallbackContext):
 
 def start_test_broadcast(update: Update, context: CallbackContext):
     """
-    Режим тестовой рассылки (личка, только YOUR_ID).
+    Режим тестовой рассылки (личный диалог, только YOUR_ID).
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -503,7 +509,7 @@ def start_test_broadcast(update: Update, context: CallbackContext):
 
 def start_city_broadcast(update: Update, context: CallbackContext):
     """
-    Режим рассылки по городам (личка, только админы).
+    Режим рассылки по городам (личный диалог, только админы).
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -521,7 +527,7 @@ def start_city_broadcast(update: Update, context: CallbackContext):
 
 def send_chat_list(update: Update, context: CallbackContext):
     """
-    Показывает список всех чатов ФАБА (личка, только админы).
+    Показывает список всех чатов ФАБА (личный диалог, только админы).
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -543,7 +549,7 @@ def send_chat_list(update: Update, context: CallbackContext):
 
 def handle_back(update: Update, context: CallbackContext):
     """
-    Кнопка «Назад» возвращает к главному меню (личка, только админы).
+    Кнопка «Назад» возвращает к главному меню (личный диалог, только админы).
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -555,7 +561,8 @@ def handle_back(update: Update, context: CallbackContext):
 
 def add_to_buffer(update: Update, context: CallbackContext):
     """
-    Добавляет сообщение в буфер для рассылки (личка, только админы, если открыт буфер).
+    Добавляет сообщение в буфер для рассылки (личный диалог, только админы,
+    если открыт буфер).
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -607,7 +614,7 @@ def sendall(update: Update, context: CallbackContext):
 # РЕГИСТРАЦИЯ ХЭНДЛЕРОВ
 # ==============================================================================
 
-# 1) Запись XP (во всех чатах ALL_CITIES, кроме команд)
+# 1) Запись XP (во всех чатах из ALL_CITIES, кроме команд)
 valid_chat_ids = {city["chat_id"] for city in ALL_CITIES}
 dispatcher.add_handler(
     MessageHandler(
@@ -619,13 +626,13 @@ dispatcher.add_handler(
     group=1
 )
 
-# 2) /top (личка, только ALLOWED_USER_IDS)
+# 2) /top (личный диалог, только ALLOWED_USER_IDS)
 dispatcher.add_handler(CommandHandler("top", cmd_top), group=2)
 
-# 3) /rank (личка, только ALLOWED_USER_IDS)
+# 3) /rank (личный диалог, только ALLOWED_USER_IDS)
 dispatcher.add_handler(CommandHandler("rank", cmd_rank), group=2)
 
-# 4) /dbdump (личка, только ALLOWED_USER_IDS) — для проверки содержимого БД
+# 4) /dbdump (личный диалог, только ALLOWED_USER_IDS) — для проверки БД
 dispatcher.add_handler(CommandHandler("dbdump", cmd_dbdump), group=2)
 
 # 5) Меню и рассылки
@@ -643,8 +650,14 @@ dispatcher.add_handler(
     group=2
 )
 
-# 6) Кнопка «Рейтинг» в меню → вызывает cmd_top без аргументов (личка, только ALLOWED_USER_IDS)
-dispatcher.add_handler(MessageHandler(Filters.regex("^Рейтинг$"), cmd_top), group=2)
+# 6) Кнопка «Рейтинг» — ловим точное текстовое сообщение "Рейтинг" в личном чате и вызываем cmd_top
+dispatcher.add_handler(
+    MessageHandler(
+        Filters.text("Рейтинг") & Filters.chat_type.private & Filters.user(ALLOWED_USER_IDS),
+        cmd_top
+    ),
+    group=2
+)
 
 # ==============================================================================
 # WEBHOOK-РУЧКА (быстрый ответ, фоновая обработка)
@@ -662,7 +675,7 @@ def ping():
     return "pong", 200
 
 # ==============================================================================
-# УСТАНОВКА WEBHOOK (при старте / импортировании модуля)
+# УСТАНОВКА WEBHOOK (автоматически при импорте модуля)
 # ==============================================================================
 
 try:
