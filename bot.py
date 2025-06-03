@@ -26,37 +26,37 @@ from telegram.utils.request import Request
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-# Список всех городских чатов, где бот считает XP
+# Список городских чатов, где бот считает XP
 ALL_CITIES = [
-    {"name": "Тюмень",         "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
-    {"name": "Новосибирск",    "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
-    {"name": "Сахалин",        "link": "https://t.me/+FzQ_jEYX8AtkMzNi", "chat_id": -1002265902434},
-    {"name": "Красноярск",     "link": "https://t.me/+lMTDVPF0syRiYzdi", "chat_id": -1002311750873},
-    {"name": "Санкт-Петербург","link": "https://t.me/+EWj9jKhAvV82NWIy","chat_id": -1002152780476},
-    {"name": "Москва",         "link": "https://t.me/+qokFNNnfhQdiYjQy", "chat_id": -1002182445604},
-    {"name": "Екатеринбург",   "link": "https://t.me/+J2ESyZJyOAk2YzYy", "chat_id": -1002392430562},
-    {"name": "Иркутск",        "link": "https://t.me/+TAoCnfoePUJmNzhi", "chat_id": -1002255012184},
-    {"name": "Оренбург",       "link": "https://t.me/+-Y_1N0HnePUxZjZi", "chat_id": -1002316600732},
-    {"name": "Крым",           "link": "https://t.me/+uC5IEnQWsmFhM2Ni", "chat_id": -1002506541314},
-    {"name": "Чита",           "link": "https://t.me/+yMeI0CjltLphZWYy", "chat_id": -1002563254789},
-    {"name": "Волгоград",      "link": "https://t.me/+ODxw0mfq73M4NGFi", "chat_id": -1002562049204},
-    {"name": "Краснодар",      "link": "https://t.me/+a9_1fWyGvAc1NzZi", "chat_id": -1002297851122},
-    {"name": "Пермь",          "link": "https://t.me/+lgM27u0cnp8wNjAy", "chat_id": -1002298810010},
-    {"name": "Самара",         "link": "https://t.me/+SLCllcYKCUFlNjk6", "chat_id": -1002589409715},
-    {"name": "Владивосток",    "link": "https://t.me/+Dpb3ozk_4Dc5OTYy", "chat_id": -1002438533236},
-    {"name": "Донецк",         "link": "https://t.me/+nGkS5gfvvQxjNmRi", "chat_id": -1002328107804},
-    {"name": "Хабаровск",      "link": "https://t.me/+SrnvRbMo3bA5NzVi", "chat_id": -1002480768813},
-    {"name": "Челябинск",      "link": "https://t.me/+ZKXj5rmcmMw0MzQy", "chat_id": -1002374636424},
-    {"name": "Тула",           "link": "https://t.me/+ZCq3GsGagIQ1NzRi", "chat_id": -1002678281080},
+    {"name": "Тюмень",          "link": "https://t.me/+3AjZ_Eo2H-NjYWJi", "chat_id": -1002241413860},
+    {"name": "Новосибирск",     "link": "https://t.me/+wx20YVCwxmo3YmQy", "chat_id": -1002489311984},
+    {"name": "Сахалин",         "link": "https://t.me/+FzQ_jEYX8AtkMzNi", "chat_id": -1002265902434},
+    {"name": "Красноярск",      "link": "https://t.me/+lMTDVPF0syRiYzdi", "chat_id": -1002311750873},
+    {"name": "Санкт-Петербург", "link": "https://t.me/+EWj9jKhAvV82NWIy", "chat_id": -1002152780476},
+    {"name": "Москва",          "link": "https://t.me/+qokFNNnfhQdiYjQy", "chat_id": -1002182445604},
+    {"name": "Екатеринбург",    "link": "https://t.me/+J2ESyZJyOAk2YzYy", "chat_id": -1002392430562},
+    {"name": "Иркутск",         "link": "https://t.me/+TAoCnfoePUJmNzhi", "chat_id": -1002255012184},
+    {"name": "Оренбург",        "link": "https://t.me/+-Y_1N0HnePUxZjZi", "chat_id": -1002316600732},
+    {"name": "Крым",            "link": "https://t.me/+uC5IEnQWsmFhM2Ni", "chat_id": -1002506541314},
+    {"name": "Чита",            "link": "https://t.me/+yMeI0CjltLphZWYy", "chat_id": -1002563254789},
+    {"name": "Волгоград",       "link": "https://t.me/+ODxw0mfq73M4NGFi", "chat_id": -1002562049204},
+    {"name": "Краснодар",       "link": "https://t.me/+a9_1fWyGvAc1NzZi", "chat_id": -1002297851122},
+    {"name": "Пермь",           "link": "https://t.me/+lgM27u0cnp8wNjAy", "chat_id": -1002298810010},
+    {"name": "Самара",          "link": "https://t.me/+SLCllcYKCUFlNjk6", "chat_id": -1002589409715},
+    {"name": "Владивосток",     "link": "https://t.me/+Dpb3ozk_4Dc5OTYy", "chat_id": -1002438533236},
+    {"name": "Донецк",          "link": "https://t.me/+nGkS5gfvvQxjNmRi", "chat_id": -1002328107804},
+    {"name": "Хабаровск",       "link": "https://t.me/+SrnvRbMo3bA5NzVi", "chat_id": -1002480768813},
+    {"name": "Челябинск",       "link": "https://t.me/+ZKXj5rmcmMw0MzQy", "chat_id": -1002374636424},
+    {"name": "Тула",            "link": "https://t.me/+ZCq3GsGagIQ1NzRi", "chat_id": -1002678281080},
 ]
 
-# Чаты для тестовой рассылки
+# Чаты для тестовой рассылки (не боевые)
 TEST_SEND_CHATS = [
     -1002596576819,  # Москва тест
     -1002584369534   # Тюмень тест
 ]
 
-# Список админов, которым разрешено пользоваться ботом
+# ID админов (которые могут вызывать меню, /top, /rank, /dbdump и т.п.)
 YOUR_ID = 296920330
 ALLOWED_USER_IDS = {
     296920330,
@@ -68,13 +68,13 @@ ALLOWED_USER_IDS = {
     1607945564
 }
 
-# XP-настройки
-XP_PER_MESSAGE = 1          # +1 XP за любое сообщение
-XP_PER_50_CHARS = 0.2       # +0.2 XP за каждые 50 символов текста
-XP_MAX_BONUS = 4            # максимум бонуса за длину
-XP_CAP_PER_MINUTE = 5       # максимум XP в одну минуту
+# Настройки XP
+XP_PER_MESSAGE   = 1        # +1 XP за любое сообщение
+XP_PER_50_CHARS  = 0.2      # +0.2 XP за каждые 50 символов текста
+XP_MAX_BONUS     = 4        # максимум бонуса за длину
+XP_CAP_PER_MINUTE = 5       # максимум XP, начисляемый за одну минуту
 
-# Путь к файлу SQLite
+# Путь к файлу SQLite (будет лежать рядом с bot.py)
 DB_PATH = "activity.db"
 
 # ==============================================================================
@@ -90,13 +90,13 @@ bot = Bot(token=BOT_TOKEN, request=req)
 dispatcher = Dispatcher(bot, None, workers=4, use_context=True)
 
 # ==============================================================================
-# ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
+# ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ (SQLite)
 # ==============================================================================
 
 def init_db():
     """
-    Создаёт файл activity.db и таблицу xp, если их ещё нет.
-    Таблица xp хранит chat_id, user_id, total_xp, last_msg_ts, first_name, last_name.
+    Создаёт таблицу xp, если её ещё нет.
+    Поля: chat_id, user_id, total_xp, last_msg_ts, first_name, last_name.
     """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -116,7 +116,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Создаем (или обновляем) таблицу сразу при импорте
+# При старте сразу создаём нужную таблицу
 init_db()
 
 # ==============================================================================
@@ -126,8 +126,8 @@ init_db()
 def calc_message_xp(text: str) -> float:
     """
     Вычисляет XP за сообщение:
-      - базово +1 XP,
-      - +0.2 XP за каждые 50 символов текста (максимум XP_MAX_BONUS).
+      - базовый +1 XP,
+      - +0.2 XP за каждые 50 символов (до XP_MAX_BONUS).
     """
     base = XP_PER_MESSAGE
     length_bonus = min((len(text) // 50) * XP_PER_50_CHARS, XP_MAX_BONUS)
@@ -135,7 +135,7 @@ def calc_message_xp(text: str) -> float:
 
 def get_city_name(chat_id: int) -> str:
     """
-    По chat_id возвращает название города, если он есть в ALL_CITIES.
+    По chat_id возвращает название города из ALL_CITIES, или 'Неизвестно'.
     """
     for city in ALL_CITIES:
         if city["chat_id"] == chat_id:
@@ -148,13 +148,14 @@ def get_city_name(chat_id: int) -> str:
 
 def record_xp(update: Update, context: CallbackContext):
     """
-    Обрабатывает сообщения (text/media) в чатах ALL_CITIES:
-    начисляет XP и обновляет базу SQLite, сохраняя first_name и last_name.
+    Обрабатывает все сообщения (текст/медиа) в чатах из ALL_CITIES:
+    начисляет XP и сохраняет в SQLite вместе с именем пользователя.
     """
     message = update.effective_message
     chat = update.effective_chat
     user = update.effective_user
 
+    # Проверяем, что это нужный чат и что это не бот
     valid_chat_ids = {city["chat_id"] for city in ALL_CITIES}
     if chat.type not in ("group", "supergroup") or chat.id not in valid_chat_ids:
         return
@@ -172,7 +173,7 @@ def record_xp(update: Update, context: CallbackContext):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # Проверяем существующую запись
+    # Получаем текущие total_xp и время последнего сообщения для этого (chat_id, user_id)
     cur.execute(
         "SELECT total_xp, last_msg_ts FROM xp WHERE chat_id = ? AND user_id = ?",
         (chat.id, user.id)
@@ -183,14 +184,14 @@ def record_xp(update: Update, context: CallbackContext):
     else:
         total_xp, last_msg_ts = 0.0, 0
 
-    # Если в течение последней минуты уже начислено XP и текущее сообщение даёт >5 XP, пропускаем
+    # Анти-флуд: если в одну минуту уже вы начислили XP и текущее сообщение даёт > XP_CAP_PER_MINUTE, пропускаем
     if last_msg_ts >= minute_bound and xp_gain > XP_CAP_PER_MINUTE:
         conn.close()
         return
 
     total_xp += xp_gain
 
-    # Сохраняем (или обновляем) запись вместе с именем пользователя
+    # Вставляем или обновляем запись с именами
     cur.execute(
         """
         INSERT INTO xp (chat_id, user_id, total_xp, last_msg_ts, first_name, last_name)
@@ -207,16 +208,16 @@ def record_xp(update: Update, context: CallbackContext):
     conn.close()
 
 # ==============================================================================
-# КОМАНДА /top (личка, только ALLOWED_USER_IDS)
+# КОМАНДА /top — ТОП-РЕЙТИНГ (личка, только ALLOWED_USER_IDS)
 # ==============================================================================
 
 def cmd_top(update: Update, context: CallbackContext):
     """
     /top [<город>] [N]
-    Если <город> указан, показывает топ-N пользователей по XP в этой группе.
-    Если не указан, показывает топ-N пользователей по суммарному XP во всех чатах.
-    N по умолчанию = 10. Выводит кликабельные имена и в скобках название чата.
-    Работает только в личке и только для ALLOWED_USER_IDS.
+    - Если указан <город>, показывает топ-N по XP в этом чате.
+    - Иначе показывает топ-N глобально (сумма по всем чатам).
+    По умолчанию N=10. Выводит кликабельные имена и в скобках — название чата.
+    Работает только в личном чате и только для админов.
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -229,7 +230,7 @@ def cmd_top(update: Update, context: CallbackContext):
     target_chat_id = None
     n = 10
 
-    # Определяем, передали ли сначала название города, затем число N
+    # Разбираем, есть ли число N в конце аргументов
     if args:
         if args[-1].isdigit():
             n = max(1, min(int(args[-1]), 50))
@@ -250,6 +251,7 @@ def cmd_top(update: Update, context: CallbackContext):
     cur = conn.cursor()
 
     lines = []
+
     if target_chat_id:
         # Топ в конкретном чате
         cur.execute(
@@ -269,7 +271,7 @@ def cmd_top(update: Update, context: CallbackContext):
         rank = 1
         for user_id, xp, first_name, last_name in rows:
             display_name = f"{first_name} {last_name}".strip() or f"ID:{user_id}"
-            # Кликавельное имя
+            # Кликабельное имя
             html_name = f'<a href="tg://user?id={user_id}">{display_name}</a>'
             lines.append(f"{rank}. {html_name} ({city_name_display}) — {int(xp)} XP")
             rank += 1
@@ -296,7 +298,7 @@ def cmd_top(update: Update, context: CallbackContext):
         lines.append(f"🏆 Глобальный топ-{n}:")
         rank = 1
         for user_id, sum_xp in top_users:
-            # Достаём первое название чата, где у пользователя были очки (max xp)
+            # Определяем, из какого чата у этого пользователя самый высокий XP
             cur.execute(
                 "SELECT chat_id FROM xp WHERE user_id = ? ORDER BY total_xp DESC LIMIT 1",
                 (user_id,)
@@ -308,7 +310,7 @@ def cmd_top(update: Update, context: CallbackContext):
             else:
                 chat_name = "Неизвестно"
 
-            # Достаём имя пользователя
+            # Берём first_name и last_name из первой записи
             cur.execute(
                 "SELECT first_name, last_name FROM xp WHERE user_id = ? LIMIT 1",
                 (user_id,)
@@ -328,6 +330,131 @@ def cmd_top(update: Update, context: CallbackContext):
     update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 # ==============================================================================
+# КОМАНДА /rank — ЛИЧНЫЙ РЕЙТИНГ (личка, только ALLOWED_USER_IDS)
+# ==============================================================================
+
+def cmd_rank(update: Update, context: CallbackContext):
+    """
+    /rank [<город>]
+    - Если <город> указан, показывает XP и уровень пользователя в этом чате.
+    - Иначе суммарный (глобальный) XP по всем чатам.
+    Работает только в личке и только для админов.
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
+        return
+
+    args = context.args
+    city_map = {city["name"].lower(): city["chat_id"] for city in ALL_CITIES}
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    if args:
+        city_name = " ".join(args).lower()
+        if city_name not in city_map:
+            update.message.reply_text(
+                f"Город «{' '.join(args)}» не найден. Доступные: {', '.join(city_map.keys())}.",
+                quote=True
+            )
+            conn.close()
+            return
+        target_chat_id = city_map[city_name]
+
+        cur.execute(
+            "SELECT total_xp, first_name, last_name FROM xp WHERE chat_id = ? AND user_id = ?",
+            (target_chat_id, user.id)
+        )
+        row = cur.fetchone()
+        conn.close()
+
+        if row:
+            total, first_name, last_name = row
+        else:
+            total, first_name, last_name = 0.0, "", ""
+
+        level = floor(sqrt(total))
+        to_next = (level + 1) ** 2 - total
+        display_name = f"{first_name} {last_name}".strip() or f"ID:{user.id}"
+        city_display = city_name.title()
+
+        text = (
+            f"👤 {display_name}, ваши очки в «{city_display}»: {int(total)}\n"
+            f"🎓 Уровень: {level} (до следующего уровня осталось {int(to_next)} XP)"
+        )
+        update.message.reply_text(text, quote=True)
+
+    else:
+        # Глобальный рейтинг: суммируем XP по всем чатам
+        cur.execute(
+            "SELECT SUM(total_xp) FROM xp WHERE user_id = ?",
+            (user.id,)
+        )
+        row = cur.fetchone()
+        total = row[0] if row and row[0] is not None else 0.0
+
+        level = floor(sqrt(total))
+        to_next = (level + 1) ** 2 - total
+
+        # Для отображения имени берём первую попавшуюся запись
+        cur.execute(
+            "SELECT first_name, last_name FROM xp WHERE user_id = ? LIMIT 1",
+            (user.id,)
+        )
+        name_row = cur.fetchone()
+        conn.close()
+
+        if name_row:
+            first_name, last_name = name_row
+        else:
+            first_name, last_name = "", ""
+        display_name = f"{first_name} {last_name}".strip() or f"ID:{user.id}"
+
+        text = (
+            f"👤 {display_name}, ваши суммарные очки по всем городам: {int(total)}\n"
+            f"🎓 Уровень: {level} (до следующего уровня осталось {int(to_next)} XP)"
+        )
+        update.message.reply_text(text, quote=True)
+
+# ==============================================================================
+# КОМАНДА /dbdump — ДЕМОНСТРАЦИЯ СОДЕРЖИМОГО БД (личка, только ALLOWED_USER_IDS)
+# ==============================================================================
+
+def cmd_dbdump(update: Update, context: CallbackContext):
+    """
+    /dbdump — показать первые 10 строк из таблицы xp (для проверки наличия данных).
+    Работает только в личке и только для админов.
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT chat_id, user_id, total_xp, first_name, last_name FROM xp LIMIT 10"
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        update.message.reply_text("В базе пока нет ни одной записи.", quote=True)
+        return
+
+    lines = ["<b>Первые 10 строк из таблицы xp:</b>"]
+    for chat_id, user_id, total_xp, first_name, last_name in rows:
+        name = f"{first_name} {last_name}".strip() or f"ID:{user_id}"
+        city = get_city_name(chat_id)
+        lines.append(f"• {name} ({chat_id}, «{city}») — {int(total_xp)} XP")
+
+    text = "\n".join(lines)
+    update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+# ==============================================================================
 # ХЭНДЛЕРЫ МЕНЮ И РАССЫЛОК (личка, только ALLOWED_USER_IDS)
 # ==============================================================================
 
@@ -335,10 +462,10 @@ user_buffers = {}
 user_waiting = {}
 user_mode = {}
 
-def main_menu_keyboard(uid):
+def main_menu_keyboard(uid: int) -> ReplyKeyboardMarkup:
     """
-    Формируем клавиатуру меню в личке:
-      - Тестовая рассылка (только YOUR_ID)
+    Собирает клавиатуру меню в личке:
+      - (опционально) Тестовая рассылка — только для YOUR_ID
       - Рассылка по городам
       - Список чатов ФАБА
       - Рейтинг
@@ -354,7 +481,7 @@ def main_menu_keyboard(uid):
 
 def menu(update: Update, context: CallbackContext):
     """
-    /menu — открывает главное меню (личка, только админы).
+    /menu — показывает главное меню (личка, только админы).
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -378,7 +505,8 @@ def start_test_broadcast(update: Update, context: CallbackContext):
     user_waiting[user.id] = True
     user_mode[user.id] = "test"
     update.message.reply_text(
-        "Отправляй любые сообщения (текст, фото, стикеры и т. д.). Когда закончишь — напиши /sendall."
+        "Отправляйте любые сообщения (текст, фото, стикеры и т. д.).\n"
+        "Когда закончите, напишите /sendall."
     )
 
 def start_city_broadcast(update: Update, context: CallbackContext):
@@ -395,12 +523,13 @@ def start_city_broadcast(update: Update, context: CallbackContext):
     user_waiting[user.id] = True
     user_mode[user.id] = "city"
     update.message.reply_text(
-        "Отправляй любые сообщения для рассылки по всем городам. Когда закончишь — напиши /sendall."
+        "Отправляйте любые сообщения для рассылки по всем городам.\n"
+        "Когда закончите, напишите /sendall."
     )
 
 def send_chat_list(update: Update, context: CallbackContext):
     """
-    Выводит список чатов ФАБА (личка, только админы).
+    Показывает список всех чатов ФАБА в виде ссылок (личка, только админы).
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -422,7 +551,7 @@ def send_chat_list(update: Update, context: CallbackContext):
 
 def handle_back(update: Update, context: CallbackContext):
     """
-    Кнопка «Назад» возвращает в главное меню (личка, только админы).
+    Кнопка «Назад» возвращает к главному меню (личка, только админы).
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -447,12 +576,13 @@ def add_to_buffer(update: Update, context: CallbackContext):
     user_buffers.setdefault(user.id, []).append(update.message)
     if len(user_buffers[user.id]) == 1:
         update.message.reply_text(
-            "Сообщение добавлено к рассылке. Когда закончите — напишите или нажмите /sendall и рассылка уйдет."
+            "Сообщение добавлено к рассылке.\n"
+            "Когда закончите — напишите /sendall, и рассылка уйдет."
         )
 
 def sendall(update: Update, context: CallbackContext):
     """
-    /sendall — отправляет накопленные сообщения из буфера в выбранные чаты.
+    /sendall — отправляет все накопленные сообщения из буфера в выбранные чаты.
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -482,10 +612,10 @@ def sendall(update: Update, context: CallbackContext):
     user_mode[user.id] = None
 
 # ==============================================================================
-# ХЭНДЛЕРЫ РЕГИСТРАЦИИ
+# РЕГИСТРАЦИЯ ХЭНДЛЕРОВ
 # ==============================================================================
 
-# 1) Запись XP (во всех чатах ALL_CITIES)
+# 1) Запись XP (во всех чатах из ALL_CITIES, кроме команд)
 valid_chat_ids = {city["chat_id"] for city in ALL_CITIES}
 dispatcher.add_handler(
     MessageHandler(
@@ -497,10 +627,16 @@ dispatcher.add_handler(
     group=1
 )
 
-# 2) /top
+# 2) /top (личка, только админы)
 dispatcher.add_handler(CommandHandler("top", cmd_top), group=2)
 
-# 3) Меню
+# 3) /rank (личка, только админы)
+dispatcher.add_handler(CommandHandler("rank", cmd_rank), group=2)
+
+# 4) /dbdump (личка, только админы, для проверки БД)
+dispatcher.add_handler(CommandHandler("dbdump", cmd_dbdump), group=2)
+
+# 5) Меню и рассылки
 dispatcher.add_handler(CommandHandler("menu", menu), group=2)
 dispatcher.add_handler(MessageHandler(Filters.regex("^Тестовая рассылка$"), start_test_broadcast), group=2)
 dispatcher.add_handler(MessageHandler(Filters.regex("^Рассылка по городам$"), start_city_broadcast), group=2)
@@ -515,11 +651,11 @@ dispatcher.add_handler(
     group=2
 )
 
-# 4) Кнопка «Рейтинг» (триггерит cmd_top без аргументов)
+# 6) Кнопка «Рейтинг» в меню → вызывает cmd_top без аргументов (личка, только админы)
 dispatcher.add_handler(MessageHandler(Filters.regex("^Рейтинг$"), cmd_top), group=2)
 
 # ==============================================================================
-# WEBHOOK-РУЧКА
+# WEBHOOK-РУЧКА (быстрый ответ, фоновая обработка)
 # ==============================================================================
 
 @app.route('/webhook', methods=['POST'])
@@ -534,7 +670,7 @@ def ping():
     return "pong", 200
 
 # ==============================================================================
-# УСТАНОВКА WEBHOOK (для Gunicorn/Render — выполняется при импорте модуля)
+# УСТАНОВКА WEBHOOK (при старте / импортировании модуля)
 # ==============================================================================
 
 try:
