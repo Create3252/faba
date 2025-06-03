@@ -473,8 +473,8 @@ def cmd_dbpath(update: Update, context: CallbackContext):
 
 def cmd_senddb(update: Update, context: CallbackContext):
     """
-    /senddb — бот пришлёт вам файл activity.db в личке.
-    Работает только в личном диалоге и только для админов (ALLOWED_USER_IDS).
+    /senddb — бот пришлёт вам файл activity.db в личном чате.
+    Работает только в личке и только для админов.
     """
     user = update.effective_user
     chat = update.effective_chat
@@ -482,9 +482,10 @@ def cmd_senddb(update: Update, context: CallbackContext):
     if chat.type != "private" or user.id not in ALLOWED_USER_IDS:
         return
 
+    # Открываем файл в бинарном режиме и сразу передаём его методу reply_document
     try:
-        db_file = InputFile(DB_PATH, filename="activity.db")
-        update.message.reply_document(db_file)
+        with open(DB_PATH, "rb") as db_file:
+            update.message.reply_document(document=db_file, filename="activity.db")
     except Exception as e:
         update.message.reply_text(f"Не удалось отправить файл: {e}", quote=True)
 
